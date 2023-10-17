@@ -1,11 +1,8 @@
 use crate::app_data::{AppData, DirListingItem, ObjectResolutionError, ResolvedObject};
 use actix_files::NamedFile;
 use actix_web::{
-    get,
-    http::{header::ContentType, StatusCode},
-    routes, web,
-    web::Redirect,
-    Either, HttpResponse, Responder, ResponseError,
+    get, http::StatusCode, routes, web, web::Redirect, Either, HttpResponse, Responder,
+    ResponseError,
 };
 use serde::Deserialize;
 use std::fmt::Write;
@@ -93,8 +90,6 @@ async fn download_object(
         Some((object_id, subobject_path)) => (object_id, Some(subobject_path)),
         None => (object_path.as_str(), None),
     };
-    dbg!(&object_id);
-    dbg!(&subobject_path);
 
     let resolved_object = app
         .resolve_object(object_id, subobject_path, query.key.as_deref())

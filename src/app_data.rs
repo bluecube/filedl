@@ -9,7 +9,6 @@ use thiserror::Error;
 use tokio::{
     fs,
     sync::{RwLock, RwLockReadGuard},
-    task::spawn_blocking,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
