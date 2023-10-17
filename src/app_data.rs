@@ -5,8 +5,12 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::{fs, sync::{RwLock, RwLockReadGuard}, task::spawn_blocking};
 use thiserror::Error;
+use tokio::{
+    fs,
+    sync::{RwLock, RwLockReadGuard},
+    task::spawn_blocking,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ObjectOwnership {
@@ -17,9 +21,9 @@ pub enum ObjectOwnership {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Object {
     pub ownership: ObjectOwnership,
-    #[serde(default, skip_serializing_if="Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires: Option<DateTime<Utc>>,
-    #[serde(default, skip_serializing_if="Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unlisted_key: Option<Arc<str>>,
 }
 
@@ -50,26 +54,28 @@ pub struct DirListingItem {
 }
 
 impl ResolvedObject {
-    pub fn with_directory(path: &Path, url_base: Option<&str>) -> Result<Self, ObjectResolutionError> {
+    pub fn with_directory(
+        path: &Path,
+        url_base: Option<&str>,
+    ) -> Result<Self, ObjectResolutionError> {
         Ok(ResolvedObject::Directory(
-             std::fs::read_dir(path)?
-                .filter_map(|entry| -> Option<Result<DirListingItem, ObjectResolutionError>> {
-                    // Pass through errors in ReadDir::next(), filter out files that have invalid UTF-8.
-                    let entry = match entry {
-                        Ok(entry) => entry,
-                        Err(e) => return Some(Err(e.into())),
-                    };
-                    let name = entry.file_name().into_string().ok()?;
-                    let link = match url_base {
-                        Some(url_base) => format!("{url_base}/{name}"),
-                        None => name.clone(),
-                    };
-                    Some(Ok(DirListingItem {
-                        name: name,
-                        link
-                    }))
-                })
-                .collect::<Result<Vec<DirListingItem>, ObjectResolutionError>>()?
+            std::fs::read_dir(path)?
+                .filter_map(
+                    |entry| -> Option<Result<DirListingItem, ObjectResolutionError>> {
+                        // Pass through errors in ReadDir::next(), filter out files that have invalid UTF-8.
+                        let entry = match entry {
+                            Ok(entry) => entry,
+                            Err(e) => return Some(Err(e.into())),
+                        };
+                        let name = entry.file_name().into_string().ok()?;
+                        let link = match url_base {
+                            Some(url_base) => format!("{url_base}/{name}"),
+                            None => name.clone(),
+                        };
+                        Some(Ok(DirListingItem { name: name, link }))
+                    },
+                )
+                .collect::<Result<Vec<DirListingItem>, ObjectResolutionError>>()?,
         ))
     }
 }
@@ -84,7 +90,7 @@ pub enum ObjectResolutionError {
     IOError {
         #[from]
         #[source]
-        source: std::io::Error
+        source: std::io::Error,
     },
 }
 
@@ -152,7 +158,12 @@ impl AppData {
     }
 
     async fn object_from_id(&self, id: &str) -> Result<Object, ObjectResolutionError> {
-        self.objects.read().await.get(id).ok_or(ObjectResolutionError::ObjectNotFound).cloned()
+        self.objects
+            .read()
+            .await
+            .get(id)
+            .ok_or(ObjectResolutionError::ObjectNotFound)
+            .cloned()
     }
 
     pub async fn iter_objects<'a>(&'a self) -> ObjectIterGuard<'a> {

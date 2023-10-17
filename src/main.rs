@@ -4,15 +4,18 @@ mod storage;
 
 use actix_files::NamedFile;
 use actix_web::{
-    get, http::{StatusCode, header::ContentType}, middleware, routes, web, web::{Data, Redirect}, App, Either,
-    HttpResponse, HttpServer, Responder, ResponseError,
+    get,
+    http::{header::ContentType, StatusCode},
+    middleware, routes, web,
+    web::{Data, Redirect},
+    App, Either, HttpResponse, HttpServer, Responder, ResponseError,
 };
-use app_data::{AppData, ObjectResolutionError, ResolvedObject, DirListingItem};
+use app_data::{AppData, DirListingItem, ObjectResolutionError, ResolvedObject};
 use config::Config;
 use serde::Deserialize;
+use std::fmt::Write;
 use std::sync::Arc;
 use thiserror::Error;
-use std::fmt::Write;
 
 #[derive(Debug, Deserialize)]
 struct DownloadQuery {
@@ -44,12 +47,10 @@ impl From<ObjectResolutionError> for UserError {
         match value {
             ObjectResolutionError::ObjectNotFound => Self::NotFound,
             ObjectResolutionError::Unlisted => Self::NotFound,
-            ObjectResolutionError::IOError { source } => {
-                match source.kind() {
-                    std::io::ErrorKind::NotFound => Self::NotFound,
-                    _ => Self::InternalError,
-                }
-            }
+            ObjectResolutionError::IOError { source } => match source.kind() {
+                std::io::ErrorKind::NotFound => Self::NotFound,
+                _ => Self::InternalError,
+            },
         }
     }
 }
@@ -106,21 +107,25 @@ async fn download_object(
 
     match resolved_object {
         ResolvedObject::File(f) => match NamedFile::open_async(f).await {
-                Ok(f) => Ok(Either::Left(f)),
-                Err(_) => Err(UserError::InternalError),
-            },
-        ResolvedObject::Directory(entries) => {
-            Ok(Either::Right(
-                HttpResponse::Ok().content_type(ContentType::html()).body(render_dir_listing(entries))
-            ))
-        }
+            Ok(f) => Ok(Either::Left(f)),
+            Err(_) => Err(UserError::InternalError),
+        },
+        ResolvedObject::Directory(entries) => Ok(Either::Right(
+            HttpResponse::Ok()
+                .content_type(ContentType::html())
+                .body(render_dir_listing(entries)),
+        )),
     }
 }
 
-fn render_dir_listing(iter: impl IntoIterator<Item=DirListingItem>) -> String {
+fn render_dir_listing(iter: impl IntoIterator<Item = DirListingItem>) -> String {
     let mut ret = "<ul>".to_string();
     for item in iter {
-        write!(ret, "<li><a href=\"{}\">{}</a></li>\n", item.link, item.name);
+        write!(
+            ret,
+            "<li><a href=\"{}\">{}</a></li>\n",
+            item.link, item.name
+        );
     }
     ret += "</ul>";
     ret

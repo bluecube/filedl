@@ -19,7 +19,7 @@ pub struct Config {
     /// Root path for all linked objects
     pub linked_objects_root: PathBuf,
 
-    #[serde(default="default_download_url")]
+    #[serde(default = "default_download_url")]
     pub download_url: String,
 }
 
