@@ -6,10 +6,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::{
-    fs,
-    sync::{RwLock, RwLockReadGuard},
-};
+use tokio::{fs, sync::RwLock};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ObjectOwnership {
@@ -27,20 +24,6 @@ pub struct Object {
 }
 
 #[derive(Debug)]
-pub struct ObjectIterGuard<'a> {
-    guard: RwLockReadGuard<'a, Storage<Object>>,
-}
-
-impl<'a> IntoIterator for &'a ObjectIterGuard<'a> {
-    type Item = (&'a Arc<str>, &'a Object);
-    type IntoIter = crate::storage::Iterator<'a, Object>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.guard.iter()
-    }
-}
-
-#[derive(Debug)]
 pub enum ResolvedObject {
     File(PathBuf),
     Directory(Vec<DirListingItem>),
@@ -48,34 +31,57 @@ pub enum ResolvedObject {
 
 #[derive(Debug)]
 pub struct DirListingItem {
-    pub name: String,
+    pub name: Arc<str>,
     pub link: String,
+    pub is_directory: bool,
+    pub file_size: u64,
+    pub modified: Option<DateTime<Utc>>,
+}
+
+impl DirListingItem {
+    /// Create the dir listing item from directory entry.
+    /// If the filename contains non-unicode characters, returns Ok(None).
+    async fn with_dir_entry(
+        entry: fs::DirEntry,
+        directory_base_url: &str,
+    ) -> Result<Option<Self>, std::io::Error> {
+        let Ok(name) = entry.file_name().into_string() else {
+            return Ok(None);
+        };
+        let link = format!("{directory_base_url}/{name}");
+        Ok(Some(Self::with_metadata(
+            name.into(),
+            link,
+            entry.metadata().await?,
+        )))
+    }
+
+    fn with_metadata(name: Arc<str>, link: String, metadata: std::fs::Metadata) -> Self {
+        DirListingItem {
+            name,
+            link,
+            is_directory: metadata.is_dir(),
+            file_size: metadata.len(),
+            modified: metadata.modified().ok().map(Into::into),
+        }
+    }
 }
 
 impl ResolvedObject {
-    pub fn with_directory(
+    pub async fn with_directory(
         path: &Path,
-        url_base: Option<&str>,
+        directory_base_url: &str,
     ) -> Result<Self, ObjectResolutionError> {
-        Ok(ResolvedObject::Directory(
-            std::fs::read_dir(path)?
-                .filter_map(
-                    |entry| -> Option<Result<DirListingItem, ObjectResolutionError>> {
-                        // Pass through errors in ReadDir::next(), filter out files that have invalid UTF-8.
-                        let entry = match entry {
-                            Ok(entry) => entry,
-                            Err(e) => return Some(Err(e.into())),
-                        };
-                        let name = entry.file_name().into_string().ok()?;
-                        let link = match url_base {
-                            Some(url_base) => format!("{url_base}/{name}"),
-                            None => name.clone(),
-                        };
-                        Some(Ok(DirListingItem { name: name, link }))
-                    },
-                )
-                .collect::<Result<Vec<DirListingItem>, ObjectResolutionError>>()?,
-        ))
+        let mut result = Vec::new();
+
+        let mut dir = fs::read_dir(path).await?;
+        while let Some(entry) = dir.next_entry().await? {
+            if let Some(item) = DirListingItem::with_dir_entry(entry, directory_base_url).await? {
+                result.push(item);
+            }
+        }
+
+        Ok(ResolvedObject::Directory(result))
     }
 }
 
@@ -101,29 +107,31 @@ pub struct AppData {
 impl AppData {
     pub fn with_config(config: Config) -> anyhow::Result<Self> {
         let path = config.data_path.join("metadata.json");
-        dbg!(&path);
         let objects = RwLock::new(Storage::new(path)?);
-        dbg!(&objects);
         Ok(AppData { config, objects })
     }
 
-    fn get_owned_object_path(&self, object_id: &str) -> PathBuf {
-        let mut path = self.config.data_path.join("owned_data");
-        path.push(object_id);
-        path
-    }
-
-    fn get_linked_object_path(&self, link_path: &Path) -> PathBuf {
-        self.config.linked_objects_root.join(link_path)
+    fn get_object_path(&self, object_id: &str, obj: &Object) -> PathBuf {
+        match &obj.ownership {
+            ObjectOwnership::Owned => {
+                let mut path = self.config.data_path.join("owned_data");
+                path.push(object_id);
+                path
+            }
+            ObjectOwnership::Linked(link_path) => self.config.linked_objects_root.join(link_path),
+        }
     }
 
     pub async fn resolve_object(
         &self,
-        object_id: &str,
-        subobject_path: Option<&str>,
+        path: &str,
         key: Option<&str>,
     ) -> Result<ResolvedObject, ObjectResolutionError> {
-        dbg!(&object_id);
+        let (object_id, subobject_path) = match path.split_once('/') {
+            Some((object_id, subobject_path)) => (object_id, Some(subobject_path)),
+            None => (path, None),
+        };
+
         let obj = self.object_from_id(object_id).await?;
         if obj
             .unlisted_key
@@ -137,22 +145,18 @@ impl AppData {
         // TODO: Verify that subobject path is not weird
         // TODO: Handle expiry?
 
-        let mut path: PathBuf = match &obj.ownership {
-            ObjectOwnership::Owned => self.get_owned_object_path(object_id),
-            ObjectOwnership::Linked(path) => self.get_linked_object_path(path),
-        };
+        let mut object_fs_path = self.get_object_path(object_id, &obj);
         if let Some(subobject_path) = subobject_path {
-            path.push(subobject_path);
+            object_fs_path.push(subobject_path);
         }
-        dbg!(&path);
 
-        let metadata = fs::metadata(&path).await?;
+        let metadata = fs::metadata(&object_fs_path).await?;
 
         if metadata.is_dir() {
-            //spawn_blocking(move || ResolvedObject::with_directory(&path, subobject_path)).await.unwrap()
-            ResolvedObject::with_directory(&path, subobject_path)
+            let base_url = format!("{}/{}", self.config.download_url, path);
+            ResolvedObject::with_directory(&object_fs_path, &base_url).await
         } else {
-            Ok(ResolvedObject::File(path))
+            Ok(ResolvedObject::File(object_fs_path))
         }
     }
 
@@ -165,9 +169,18 @@ impl AppData {
             .cloned()
     }
 
-    pub async fn iter_objects<'a>(&'a self) -> ObjectIterGuard<'a> {
-        ObjectIterGuard {
-            guard: self.objects.read().await,
+    pub async fn list_objects(&self) -> Result<Vec<DirListingItem>, ObjectResolutionError> {
+        let mut result = Vec::new();
+
+        for (key, obj) in self.objects.read().await.iter() {
+            let metadata = fs::metadata(self.get_object_path(key, obj)).await?;
+            result.push(DirListingItem::with_metadata(
+                Arc::clone(key),
+                format!("{}/{}", self.config.download_url, key),
+                metadata,
+            ));
         }
+
+        Ok(result)
     }
 }

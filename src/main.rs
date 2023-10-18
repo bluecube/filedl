@@ -22,6 +22,9 @@ async fn main() -> anyhow::Result<()> {
         App::new()
             .app_data(Data::new(app_data))
             .wrap(middleware::NormalizePath::trim())
+            .wrap(
+                middleware::DefaultHeaders::new().add(("Content-Type", "text/html; charset=utf-8")),
+            )
             .configure(configure_pages)
     })
     .bind(("127.0.0.1", 8080))?

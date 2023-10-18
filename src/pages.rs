@@ -4,8 +4,8 @@ use actix_web::{
     get, http::StatusCode, routes, web, web::Redirect, Either, HttpResponse, Responder,
     ResponseError,
 };
+use askama::Template;
 use serde::Deserialize;
-use std::fmt::Write;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -47,6 +47,14 @@ impl From<ObjectResolutionError> for UserError {
     }
 }
 
+#[derive(Template)]
+#[template(path = "dir_listing.html")]
+struct DirListingTemplate<'a> {
+    /// List of path elements to this directory, rooted at the download directory
+    path: Vec<&'a str>,
+    items: Vec<DirListingItem>,
+}
+
 #[routes]
 #[get("/index.html")]
 #[get("/")]
@@ -56,27 +64,19 @@ async fn index_redirect() -> impl Responder {
 
 #[get("/admin")]
 async fn admin(app: web::Data<AppData>) -> impl Responder {
-    let mut ret: String = "Admin".into();
-    for (name, _) in &app.iter_objects().await {
-        ret += "\n";
-        ret += name;
-    }
-    ret
+    "TODO"
 }
 
 #[get("/download")]
-async fn download_root(app: web::Data<Arc<AppData>>) -> impl Responder {
-    let mut ret: String = "Download root".into();
-    for (name, _) in app
-        .iter_objects()
-        .await
-        .into_iter()
-        .filter(|&(_, o)| o.unlisted_key.is_none())
-    {
-        ret += "\n";
-        ret += name;
-    }
-    ret
+async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse, UserError> {
+    Ok(HttpResponse::Ok().body(
+        DirListingTemplate {
+            path: Vec::new(),
+            items: app.list_objects().await?,
+        }
+        .render()
+        .unwrap(),
+    ))
 }
 
 #[get("/download/{object:.*}")]
@@ -86,39 +86,27 @@ async fn download_object(
     query: web::Query<DownloadQuery>,
 ) -> Result<Either<NamedFile, HttpResponse>, UserError> {
     let object_path = path.into_inner();
-    let (object_id, subobject_path) = match object_path.split_once('/') {
-        Some((object_id, subobject_path)) => (object_id, Some(subobject_path)),
-        None => (object_path.as_str(), None),
-    };
-
     let resolved_object = app
-        .resolve_object(object_id, subobject_path, query.key.as_deref())
+        .resolve_object(object_path.as_str(), query.key.as_deref())
         .await?;
 
     match resolved_object {
-        ResolvedObject::File(f) => match NamedFile::open_async(f).await {
-            Ok(f) => Ok(Either::Left(f)),
-            Err(_) => Err(UserError::InternalError),
-        },
-        ResolvedObject::Directory(entries) => Ok(Either::Right(
-            HttpResponse::Ok()
-                .content_type(ContentType::html())
-                .body(render_dir_listing(entries)),
+        ResolvedObject::File(f) => Ok(Either::Left(
+            NamedFile::open_async(f)
+                .await
+                .map_err(|_| UserError::InternalError)?,
+        )),
+        ResolvedObject::Directory(items) => Ok(Either::Right(
+            HttpResponse::Ok().body(
+                DirListingTemplate {
+                    path: object_path.split('/').collect(), // TODO: Move this into AppData
+                    items,
+                }
+                .render()
+                .map_err(|_| UserError::InternalError)?,
+            ),
         )),
     }
-}
-
-fn render_dir_listing(iter: impl IntoIterator<Item = DirListingItem>) -> String {
-    let mut ret = "<ul>".to_string();
-    for item in iter {
-        write!(
-            ret,
-            "<li><a href=\"{}\">{}</a></li>\n",
-            item.link, item.name
-        );
-    }
-    ret += "</ul>";
-    ret
 }
 
 /// Not found handler used for default route
@@ -127,10 +115,17 @@ async fn default_service() -> Result<HttpResponse, UserError> {
 }
 
 pub fn configure_pages(cfg: &mut web::ServiceConfig) {
-    cfg.wrap(middleware::NormalizePath::trim())
-        .default_service(web::to(default_service))
+    cfg.default_service(web::to(default_service))
         .service(index_redirect)
         .service(admin)
         .service(download_root)
         .service(download_object);
+}
+
+mod filters {
+    use chrono::prelude::*;
+
+    pub fn time_format(time: &DateTime<Utc>) -> askama::Result<String> {
+        Ok(time.to_rfc3339())
+    }
 }

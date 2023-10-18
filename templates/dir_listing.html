@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ directory_path }}{% endblock %}
+{% block content %}
+    <ul>
+        {% for item in items %}
+        <li class="{% if item.is_directory %}directory{% else %}file{% endif %}">
+            <a class="filename" href="{{ download_base_url }}/{{ directory_path }}/{{ item.name }}">{{ item.name }}{% if item.is_directory %}/{% endif %}</a>
+            {% if !item.is_directory %}<span class="filesize">{{ item.file_size|filesizeformat }}</span>{% endif %}
+            {% match item.modified %}{% when Some(time) %}<span class="Modified">{{ time|time_format }}</span>{% when None %}{% endmatch %}
+        </li>
+        {% endfor %}
+    </ul>
+{% endblock %}
