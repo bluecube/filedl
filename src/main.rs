@@ -6,7 +6,7 @@ mod storage;
 
 use crate::pages::configure_pages;
 
-use actix_web::{middleware, web::Data, App, HttpServer};
+use actix_web::{http::header, middleware, web::Data, App, HttpServer};
 use app_data::AppData;
 use config::Config;
 use std::sync::Arc;
@@ -23,9 +23,7 @@ async fn main() -> anyhow::Result<()> {
         App::new()
             .app_data(Data::new(app_data))
             .wrap(middleware::NormalizePath::trim())
-            .wrap(
-                middleware::DefaultHeaders::new().add(("Content-Type", "text/html; charset=utf-8")),
-            )
+            .wrap(middleware::DefaultHeaders::new().add(header::ContentType::html()))
             .configure(configure_pages)
     })
     .bind(("127.0.0.1", 8080))?
