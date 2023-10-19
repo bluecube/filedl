@@ -111,6 +111,10 @@ impl AppData {
         Ok(AppData { config, objects })
     }
 
+    pub fn get_download_base_url<'a>(&'a self) -> &'a str {
+        &self.config.download_url
+    }
+
     fn get_object_path(&self, object_id: &str, obj: &Object) -> PathBuf {
         match &obj.ownership {
             ObjectOwnership::Owned => {

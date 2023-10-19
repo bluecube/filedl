@@ -1,4 +1,5 @@
 mod app_data;
+mod breadcrumbs;
 mod config;
 mod pages;
 mod storage;

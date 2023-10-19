@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ directory_path }}{% endblock %}
 {% block content %}
+    <h1><a class="home" href="{{ download_base_url }}">home</a>{% for piece in directory_breadcrumbs %}/<a href="{{ download_base_url }}/{{ piece.link_url }}">{{ piece.name }}</a>{% endfor %}</h1>
     <ul>
         {% for item in items %}
         <li class="{% if item.is_directory %}directory{% else %}file{% endif %}">

@@ -1,4 +1,5 @@
 use crate::app_data::{AppData, DirListingItem, ObjectResolutionError, ResolvedObject};
+use crate::breadcrumbs::BreadcrumbsIterator;
 use actix_files::NamedFile;
 use actix_web::{
     get, http::StatusCode, routes, web, web::Redirect, Either, HttpResponse, Responder,
@@ -51,7 +52,9 @@ impl From<ObjectResolutionError> for UserError {
 #[template(path = "dir_listing.html")]
 struct DirListingTemplate<'a> {
     /// List of path elements to this directory, rooted at the download directory
-    path: Vec<&'a str>,
+    download_base_url: &'a str,
+    directory_path: &'a str,
+    directory_breadcrumbs: BreadcrumbsIterator<'a>,
     items: Vec<DirListingItem>,
 }
 
@@ -71,7 +74,9 @@ async fn admin(app: web::Data<AppData>) -> impl Responder {
 async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse, UserError> {
     Ok(HttpResponse::Ok().body(
         DirListingTemplate {
-            path: Vec::new(),
+            download_base_url: app.get_download_base_url(),
+            directory_path: "",
+            directory_breadcrumbs: BreadcrumbsIterator::new(""),
             items: app.list_objects().await?,
         }
         .render()
@@ -99,7 +104,9 @@ async fn download_object(
         ResolvedObject::Directory(items) => Ok(Either::Right(
             HttpResponse::Ok().body(
                 DirListingTemplate {
-                    path: object_path.split('/').collect(), // TODO: Move this into AppData
+                    download_base_url: app.get_download_base_url(),
+                    directory_path: &object_path,
+                    directory_breadcrumbs: BreadcrumbsIterator::new(&object_path),
                     items,
                 }
                 .render()
