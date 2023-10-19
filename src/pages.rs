@@ -139,9 +139,9 @@ async fn stylesheet() -> Result<HttpResponse, UserError> {
 }
 
 async fn file_download(f: &Path) -> Result<NamedFile, UserError> {
-    Ok(NamedFile::open_async(f)
+    NamedFile::open_async(f)
         .await
-        .map_err(|_| UserError::InternalError)?)
+        .map_err(|_| UserError::InternalError)
 }
 
 async fn dir_listing(
@@ -152,8 +152,8 @@ async fn dir_listing(
     Ok(HttpResponse::Ok().body(
         DirListingTemplate {
             download_base_url: app.get_download_base_url(),
-            directory_path: &object_path,
-            directory_breadcrumbs: BreadcrumbsIterator::new(&object_path),
+            directory_path: object_path,
+            directory_breadcrumbs: BreadcrumbsIterator::new(object_path),
             items,
         }
         .render()

@@ -111,7 +111,7 @@ impl AppData {
         Ok(AppData { config, objects })
     }
 
-    pub fn get_download_base_url<'a>(&'a self) -> &'a str {
+    pub fn get_download_base_url(&self) -> &str {
         &self.config.download_url
     }
 
