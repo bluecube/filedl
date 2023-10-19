@@ -2,19 +2,31 @@ use crate::app_data::{AppData, DirListingItem, ObjectResolutionError, ResolvedOb
 use crate::breadcrumbs::BreadcrumbsIterator;
 use actix_files::NamedFile;
 use actix_web::{
-    get, http::StatusCode, routes, web, web::Redirect, Either, HttpResponse, Responder,
-    ResponseError,
+    get,
+    http::{header, StatusCode},
+    routes, web,
+    web::Redirect,
+    Either, HttpResponse, Responder, ResponseError,
 };
 use askama::Template;
 use serde::Deserialize;
+use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
+
+#[derive(Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum DownloadMode {
+    #[default]
+    Default,
+    Internal,
+}
 
 #[derive(Debug, Deserialize)]
 struct DownloadQuery {
     key: Option<String>,
-    //#[serde(default)]
-    //thumbnail: bool
+    #[serde(default)]
+    mode: DownloadMode,
 }
 
 /// User visible error
@@ -55,8 +67,12 @@ struct DirListingTemplate<'a> {
     download_base_url: &'a str,
     directory_path: &'a str,
     directory_breadcrumbs: BreadcrumbsIterator<'a>,
-    items: Vec<DirListingItem>,
+    items: &'a [DirListingItem],
 }
+
+#[derive(Template)]
+#[template(path = "style.css", escape = "none")]
+struct StylesheetTemplate {}
 
 #[routes]
 #[get("/index.html")]
@@ -72,15 +88,16 @@ async fn admin(app: web::Data<AppData>) -> impl Responder {
 
 #[get("/download")]
 async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse, UserError> {
+    let objects = app.list_objects().await?;
     Ok(HttpResponse::Ok().body(
         DirListingTemplate {
             download_base_url: app.get_download_base_url(),
             directory_path: "",
             directory_breadcrumbs: BreadcrumbsIterator::new(""),
-            items: app.list_objects().await?,
+            items: &objects,
         }
         .render()
-        .unwrap(),
+        .map_err(|_| UserError::InternalError)?,
     ))
 }
 
@@ -91,29 +108,57 @@ async fn download_object(
     query: web::Query<DownloadQuery>,
 ) -> Result<Either<NamedFile, HttpResponse>, UserError> {
     let object_path = path.into_inner();
-    let resolved_object = app
-        .resolve_object(object_path.as_str(), query.key.as_deref())
-        .await?;
 
-    match resolved_object {
-        ResolvedObject::File(f) => Ok(Either::Left(
-            NamedFile::open_async(f)
+    if query.mode == DownloadMode::Internal {
+        match object_path.as_str() {
+            "style.css" => stylesheet().await.map(Either::Right),
+            &_ => Err(UserError::NotFound),
+        }
+    } else {
+        let resolved_object = app
+            .resolve_object(object_path.as_str(), query.key.as_deref())
+            .await?;
+
+        match resolved_object {
+            ResolvedObject::File(f) => file_download(&f).await.map(Either::Left),
+            ResolvedObject::Directory(items) => dir_listing(&app, &object_path, &items)
                 .await
-                .map_err(|_| UserError::InternalError)?,
-        )),
-        ResolvedObject::Directory(items) => Ok(Either::Right(
-            HttpResponse::Ok().body(
-                DirListingTemplate {
-                    download_base_url: app.get_download_base_url(),
-                    directory_path: &object_path,
-                    directory_breadcrumbs: BreadcrumbsIterator::new(&object_path),
-                    items,
-                }
+                .map(Either::Right),
+        }
+    }
+}
+
+async fn stylesheet() -> Result<HttpResponse, UserError> {
+    Ok(HttpResponse::Ok()
+        .insert_header(header::ContentType(mime::TEXT_CSS))
+        .body(
+            StylesheetTemplate {}
                 .render()
                 .map_err(|_| UserError::InternalError)?,
-            ),
-        )),
-    }
+        ))
+}
+
+async fn file_download(f: &Path) -> Result<NamedFile, UserError> {
+    Ok(NamedFile::open_async(f)
+        .await
+        .map_err(|_| UserError::InternalError)?)
+}
+
+async fn dir_listing(
+    app: &AppData,
+    object_path: &str,
+    items: &[DirListingItem],
+) -> Result<HttpResponse, UserError> {
+    Ok(HttpResponse::Ok().body(
+        DirListingTemplate {
+            download_base_url: app.get_download_base_url(),
+            directory_path: &object_path,
+            directory_breadcrumbs: BreadcrumbsIterator::new(&object_path),
+            items,
+        }
+        .render()
+        .map_err(|_| UserError::InternalError)?,
+    ))
 }
 
 /// Not found handler used for default route

@@ -1,13 +1,15 @@
 {% extends "base.html" %}
 {% block title %}{{ directory_path }}{% endblock %}
 {% block content %}
-    <h1><a class="home" href="{{ download_base_url }}">home</a>{% for piece in directory_breadcrumbs %}/<a href="{{ download_base_url }}/{{ piece.link_url }}">{{ piece.name }}</a>{% endfor %}</h1>
-    <ul>
+    <h1><a id="home" href="{{ download_base_url }}">home</a>{% for piece in directory_breadcrumbs %}/<a href="{{ download_base_url }}/{{ piece.link_url }}">{{ piece.name }}</a>{% endfor %}</h1>
+    <ul class="dir-listing">
         {% for item in items %}
         <li class="{% if item.is_directory %}directory{% else %}file{% endif %}">
-            <a class="filename" href="{{ download_base_url }}/{% if !directory_path.is_empty() %}{{ directory_path }}/{% endif %}{{ item.name }}">{{ item.name }}{% if item.is_directory %}/{% endif %}</a>
-            {% if !item.is_directory %}<span class="filesize">{{ item.file_size|filesizeformat }}</span>{% endif %}
-            {% match item.modified %}{% when Some(time) %}<span class="Modified">{{ time|time_format }}</span>{% when None %}{% endmatch %}
+            <a class="name" href="{{ download_base_url }}/{% if !directory_path.is_empty() %}{{ directory_path }}/{% endif %}{{ item.name }}">{{ item.name }}{% if item.is_directory %}/{% endif %}</a>
+            <div class="details">
+                {% if !item.is_directory %}<span class="size">{{ item.file_size|filesizeformat }}</span>{% endif %}
+                {% match item.modified %}{% when Some(time) %}<span class="modified">{{ time|time_format }}</span>{% when None %}{% endmatch %}
+            </div>
         </li>
         {% endfor %}
     </ul>
