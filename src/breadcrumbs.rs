@@ -67,12 +67,13 @@ pub struct Breadcrumb<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use assert2::assert;
     use proptest::prop_assume;
     use test_strategy::proptest;
 
     #[test]
     fn empty_string() {
-        assert_eq!(BreadcrumbsIterator::new("").count(), 0);
+        assert!(BreadcrumbsIterator::new("").count() == 0);
     }
 
     #[proptest]
@@ -83,7 +84,7 @@ mod test {
             .map(|crumb| crumb.name)
             .collect();
 
-        assert_eq!(actual, expected);
+        assert!(actual == expected);
     }
 
     #[proptest]
