@@ -5,7 +5,7 @@ Currently WIP.
 
 ## Features
 - [x] File downloading
-- [ ] Directory listing
+- [x] Directory listing
 - [ ] Directory download as ZIP
 - [ ] Image previews
 - [ ] Display images as a gallery
