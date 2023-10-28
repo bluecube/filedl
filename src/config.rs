@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 
+use chrono_tz::{Tz, UTC};
 use clap::Parser;
 use figment::{
     providers::{Env, Format, Toml},
     Figment,
 };
 use serde::Deserialize;
-use chrono_tz::{Tz, UTC};
 
 fn default_download_url() -> String {
     "/download".into()

@@ -1,14 +1,14 @@
 use crate::config::Config;
 use crate::storage::Storage;
 use chrono::prelude::*;
+use chrono_tz::Tz;
+use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::path::PathBuf;
-use relative_path::RelativePathBuf;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::{fs, sync::RwLock};
-use chrono_tz::Tz;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ObjectOwnership {
@@ -132,7 +132,9 @@ impl AppData {
                 path.push(object_id);
                 path
             }
-            ObjectOwnership::Linked(link_path) => link_path.to_path(&self.config.linked_objects_root),
+            ObjectOwnership::Linked(link_path) => {
+                link_path.to_path(&self.config.linked_objects_root)
+            }
         }
     }
 

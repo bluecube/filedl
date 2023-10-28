@@ -9,11 +9,11 @@ use actix_web::{
     Either, HttpResponse, Responder, ResponseError,
 };
 use askama::Template;
+use chrono_tz::Tz;
 use serde::Deserialize;
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
-use chrono_tz::Tz;
 
 pub const PROJECT_NAME: &str = env!("CARGO_PKG_NAME");
 pub const PROJECT_REPO: &str = env!("CARGO_PKG_REPOSITORY");
@@ -197,8 +197,11 @@ mod filters {
 
         let converted = time.with_timezone(tz);
 
-        Ok(format!("{}", converted.format(
-            r#"<time datetime="%+">%Y-%m-%d<span class="separator">T</span>%H:%M:%S</time>"#
-        )))
+        Ok(format!(
+            "{}",
+            converted.format(
+                r#"<time datetime="%+">%Y-%m-%d<span class="separator">T</span>%H:%M:%S</time>"#
+            )
+        ))
     }
 }
