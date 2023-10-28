@@ -15,7 +15,7 @@
             <a class="name" href="{{ download_base_url }}/{% if !directory_path.is_empty() %}{{ directory_path }}/{% endif %}{{ item.name }}">{{ item.name }}{% if item.is_directory %}/{% endif %}</a>
             <div class="details">
                 {% if !item.is_directory %}<span class="size">{{ item.file_size|filesizeformat }}</span>{% endif %}
-                {% match item.modified %}{% when Some(time) %}<span class="modified">{{ time|time_format }}</span>{% when None %}{% endmatch %}
+                {{ item.modified|time_format(display_timezone)|safe }}
             </div>
         </li>
         {% endfor %}

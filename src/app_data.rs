@@ -8,6 +8,7 @@ use relative_path::RelativePathBuf;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::{fs, sync::RwLock};
+use chrono_tz::Tz;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ObjectOwnership {
@@ -118,6 +119,10 @@ impl AppData {
 
     pub fn get_app_name(&self) -> &str {
         &self.config.app_name
+    }
+
+    pub fn get_display_timezone(&self) -> &Tz {
+        &self.config.display_timezone
     }
 
     fn get_object_path(&self, object_id: &str, obj: &Object) -> PathBuf {

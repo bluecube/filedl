@@ -13,6 +13,7 @@ use serde::Deserialize;
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
+use chrono_tz::Tz;
 
 pub const PROJECT_NAME: &str = env!("CARGO_PKG_NAME");
 pub const PROJECT_REPO: &str = env!("CARGO_PKG_REPOSITORY");
@@ -68,6 +69,7 @@ impl From<ObjectResolutionError> for UserError {
 #[template(path = "dir_listing.html")]
 struct DirListingTemplate<'a> {
     app_name: &'a str,
+    display_timezone: &'a Tz,
 
     /// List of path elements to this directory, rooted at the download directory
     download_base_url: &'a str,
@@ -98,6 +100,7 @@ async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse, Use
     Ok(HttpResponse::Ok().body(
         DirListingTemplate {
             app_name: app.get_app_name(),
+            display_timezone: app.get_display_timezone(),
             download_base_url: app.get_download_base_url(),
             directory_path: "",
             directory_breadcrumbs: BreadcrumbsIterator::new(""),
@@ -159,6 +162,7 @@ async fn dir_listing(
     Ok(HttpResponse::Ok().body(
         DirListingTemplate {
             app_name: app.get_app_name(),
+            display_timezone: app.get_display_timezone(),
             download_base_url: app.get_download_base_url(),
             directory_path: object_path,
             directory_breadcrumbs: BreadcrumbsIterator::new(object_path),
@@ -184,8 +188,17 @@ pub fn configure_pages(cfg: &mut web::ServiceConfig) {
 
 mod filters {
     use chrono::prelude::*;
+    use chrono_tz::Tz;
 
-    pub fn time_format(time: &DateTime<Utc>) -> askama::Result<String> {
-        Ok(time.to_rfc3339())
+    pub fn time_format(time: &Option<DateTime<Utc>>, tz: &Tz) -> askama::Result<String> {
+        let Some(time) = time else {
+            return Ok("".into());
+        };
+
+        let converted = time.with_timezone(tz);
+
+        Ok(format!("{}", converted.format(
+            r#"<time datetime="%+">%Y-%m-%d<span class="separator">T</span>%H:%M:%S</time>"#
+        )))
     }
 }

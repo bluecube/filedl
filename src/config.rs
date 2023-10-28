@@ -6,9 +6,14 @@ use figment::{
     Figment,
 };
 use serde::Deserialize;
+use chrono_tz::{Tz, UTC};
 
 fn default_download_url() -> String {
     "/download".into()
+}
+
+fn default_timezone() -> Tz {
+    UTC
 }
 
 #[derive(Debug, Deserialize)]
@@ -24,6 +29,9 @@ pub struct Config {
 
     #[serde(default)]
     pub app_name: String,
+
+    #[serde(default = "default_timezone")]
+    pub display_timezone: Tz,
 }
 
 #[derive(Debug, Parser)]

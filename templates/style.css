@@ -121,6 +121,11 @@ ul.dir-listing {
     padding-right: 0.1em;
 }
 
+time .separator {
+    font-size: 90%;
+    color: #999;
+}
+
 {% macro icon %}
     font-family: 'Material Icons Outlined';
     font-weight: normal;
