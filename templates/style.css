@@ -1,27 +1,124 @@
-.dir-listing li {
-    list-style-type: none;
-    border: 0.05em solid black;
-    background-color: #ccc;
-    margin: 0.2em;
-    padding: 0.2em;
-    display: flex;
-    align-items: center;
+body {
+    padding: 0.5em;
+    margin-left: auto;
+    margin-right: auto;
+    max-width: 50em;
+    font-family: sans-serif;
+    background: #F2F4F5;
+}
+
+#content {
+    width: 100%;
+    background: #B3CDD5;
+    box-shadow: 0 0 0 100vmax #B3CDD5;
+    padding-top: 0.7em;
+    padding-bottom: 0.7em;
+    margin-top: 1em;
+    margin-bottom: 1em;
+    clip-path: inset(0 -100vmax);
+}
+
+#footer {
+    text-align: right;
+}
+
+a:link {
+    color: #00C;
+}
+
+a:visited {
+    color #609;
+}
+
+nav {
+    margin-top: 2em;
+    margin-bottom: 3em;
+}
+
+nav .app_name {
+    font-size: 200%;
+    margin: 0;
+}
+
+h1 {
+    font-size: 140%;
+    margin: 0;
+}
+
+h1, h1 a, h1 a:link, nav .app_name  {
+    color: #333;
+    font-family: "Lucida Console", Courier, monospace;
+    font-weight: bold;
+}
+h1 a.home {
+    {% call icon %}
+    font-size: 150%;
+    text-decoration: none;
+    vertical-align: bottom;
 }
 
 ul.dir-listing {
-    padding: 0;
+    width: 100%;
     margin: 0;
+    padding: 0;
+}
+
+.dir-listing li {
+    list-style-type: none;
+    border: 0.05em solid black;
+    border-radius: 0.3em;
+    background-color: #DAE1E4;
+    margin: 0;
+    margin-top: 0.2em;
+    margin-bottom; 0.2em;
+    padding: 0.2em;
+    min-height: 2.5em;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
 }
 
 .dir-listing a.name {
     display: block;
     margin-right: auto;
+    overflow-wrap: break-word;
+    max-width: 100%;
 }
 
 .dir-listing .details {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
+    text-align: right;
+    max-width: 100%;
+    margin-left: auto;
+}
+
+.dir-listing .details span {
+    overflow-wrap: break-word;
+    max-width: 100%;
+}
+
+.empty-dir-listing {
+    text-align: center;
+    color: #999;
+}
+
+.dir-listing a.name::before, .dir-listing a.name:visited::before {
+    color: #333;
+}
+
+.dir-listing .file a::before {
+    {% call icon %}
+    content: "note";
+    vertical-align: bottom;
+    padding-right: 0.1em;
+}
+
+.dir-listing .directory a::before {
+    {% call icon %}
+    content: "folder";
+    vertical-align: bottom;
+    padding-right: 0.1em;
 }
 
 {% macro icon %}
@@ -46,23 +143,6 @@ ul.dir-listing {
 
     /* Support for IE. */
     font-feature-settings: 'liga';
+
+    overflow-wrap: normal;
 {% endmacro %}
-
-a#home {
-    {% call icon %}
-    font-size: 1.5em;
-    text-decoration: none;
-    vertical-align: bottom;
-}
-
-.dir-listing .file a::before {
-    {% call icon %}
-    content: "note";
-    vertical-align: bottom;
-}
-
-.dir-listing .directory a::before {
-    {% call icon %}
-    content: "folder";
-    vertical-align: bottom;
-}

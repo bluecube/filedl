@@ -14,6 +14,10 @@ use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
 
+pub const PROJECT_NAME: &str = env!("CARGO_PKG_NAME");
+pub const PROJECT_REPO: &str = env!("CARGO_PKG_REPOSITORY");
+pub const PROJECT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 enum DownloadMode {
@@ -63,6 +67,8 @@ impl From<ObjectResolutionError> for UserError {
 #[derive(Template)]
 #[template(path = "dir_listing.html")]
 struct DirListingTemplate<'a> {
+    app_name: &'a str,
+
     /// List of path elements to this directory, rooted at the download directory
     download_base_url: &'a str,
     directory_path: &'a str,
@@ -91,6 +97,7 @@ async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse, Use
     let objects = app.list_objects().await?;
     Ok(HttpResponse::Ok().body(
         DirListingTemplate {
+            app_name: app.get_app_name(),
             download_base_url: app.get_download_base_url(),
             directory_path: "",
             directory_breadcrumbs: BreadcrumbsIterator::new(""),
@@ -151,6 +158,7 @@ async fn dir_listing(
 ) -> Result<HttpResponse, UserError> {
     Ok(HttpResponse::Ok().body(
         DirListingTemplate {
+            app_name: app.get_app_name(),
             download_base_url: app.get_download_base_url(),
             directory_path: object_path,
             directory_breadcrumbs: BreadcrumbsIterator::new(object_path),

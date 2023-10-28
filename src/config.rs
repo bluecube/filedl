@@ -21,6 +21,9 @@ pub struct Config {
 
     #[serde(default = "default_download_url")]
     pub download_url: String,
+
+    #[serde(default)]
+    pub app_name: String,
 }
 
 #[derive(Debug, Parser)]

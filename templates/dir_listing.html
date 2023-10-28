@@ -1,7 +1,14 @@
 {% extends "base.html" %}
 {% block title %}{{ directory_path }}{% endblock %}
 {% block content %}
-    <h1><a id="home" href="{{ download_base_url }}">home</a>{% for piece in directory_breadcrumbs %}/<a href="{{ download_base_url }}/{{ piece.link_url }}">{{ piece.name }}</a>{% endfor %}</h1>
+<nav>
+    {% if !app_name.is_empty() %}<div class="app_name">{{ app_name }}</div>{% endif %}
+    <h1 class="breadcrumbs"><a class="home" href="{{ download_base_url }}">home</a>{% for piece in directory_breadcrumbs %}/<a href="{{ download_base_url }}/{{ piece.link_url }}">{{ piece.name }}</a>{% endfor %}</h1>
+</nav>
+<div id="content">
+    {% if items.is_empty() %}
+    <div class="empty-dir-listing">No data</div>
+    {% else %}
     <ul class="dir-listing">
         {% for item in items %}
         <li class="{% if item.is_directory %}directory{% else %}file{% endif %}">
@@ -13,4 +20,6 @@
         </li>
         {% endfor %}
     </ul>
+    {% endif %}
+</div>
 {% endblock %}
