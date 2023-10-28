@@ -4,6 +4,7 @@ use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::path::PathBuf;
+use relative_path::RelativePathBuf;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::{fs, sync::RwLock};
@@ -11,7 +12,7 @@ use tokio::{fs, sync::RwLock};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ObjectOwnership {
     Owned,
-    Linked(PathBuf),
+    Linked(RelativePathBuf),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -122,7 +123,7 @@ impl AppData {
                 path.push(object_id);
                 path
             }
-            ObjectOwnership::Linked(link_path) => self.config.linked_objects_root.join(link_path),
+            ObjectOwnership::Linked(link_path) => link_path.to_path(&self.config.linked_objects_root),
         }
     }
 
