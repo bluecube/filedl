@@ -16,6 +16,10 @@ fn default_timezone() -> Tz {
     UTC
 }
 
+fn default_thumbnail_cache_size() -> usize {
+    1024 * 1024 * 20
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Config {
     /// Directory where owned objects are stored
@@ -32,6 +36,10 @@ pub struct Config {
 
     #[serde(default = "default_timezone")]
     pub display_timezone: Tz,
+
+    /// Maximum size in bytes for cached thumbnails.
+    #[serde(default = "default_thumbnail_cache_size")]
+    pub thumbnail_cache_size: usize,
 }
 
 #[derive(Debug, Parser)]

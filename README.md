@@ -7,7 +7,7 @@ Currently WIP.
 - [x] File downloading
 - [x] Directory listing
 - [ ] Directory download as ZIP
-- [ ] Image previews
+- [x] Image thumbnails
 - [ ] Display images as a gallery
 - [ ] Download expiry
 - [ ] Unlisted downloads

@@ -50,6 +50,7 @@ h1, h1 a, h1 a:link, nav .app_name  {
     font-family: "Lucida Console", Courier, monospace;
     font-weight: bold;
 }
+
 h1 a.home {
     {% call icon %}
     font-size: 150%;
@@ -65,24 +66,63 @@ ul.dir-listing {
 
 .dir-listing li {
     list-style-type: none;
-    border: 0.05em solid black;
+    border: 0.05em solid #333;
     border-radius: 0.3em;
     background-color: #DAE1E4;
     margin: 0;
     margin-top: 0.2em;
     margin-bottom; 0.2em;
-    padding: 0.2em;
+    padding: 0.3em;
     min-height: 2.5em;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
 }
 
-.dir-listing a.name {
+.dir-listing a.main_link {
     display: block;
     margin-right: auto;
     overflow-wrap: break-word;
     max-width: 100%;
+    text-decoration: none;
+}
+
+.dir-listing a.main_link .underlined {
+    text-decoration: underline;
+    margin-left: 0.5em;
+}
+
+.dir-listing img.thumbnail {
+    width: 4rem;
+    height: 4rem;
+    vertical-align: middle;
+    display: inline-block;
+    margin-left: -4rem;
+}
+
+.dir-listing a.main_link::before {
+    {% call icon %}
+    box-sizing: border-box;
+    border: 0.05em solid #999;
+    color: #999;
+    width: 4rem;
+    height: 4rem;
+    vertical-align: middle;
+    display: inline-block;
+    text-align: center;
+    line-height: 3.8rem;
+}
+
+.dir-listing a.main_link::before {
+    content: "note";
+}
+
+.dir-listing .directory a.main_link::before {
+    content: "folder";
+}
+
+.dir-listing .image a.main_link::before {
+    content: "image";
 }
 
 .dir-listing .details {
@@ -103,24 +143,6 @@ ul.dir-listing {
     color: #999;
 }
 
-.dir-listing a.name::before, .dir-listing a.name:visited::before {
-    color: #333;
-}
-
-.dir-listing .file a::before {
-    {% call icon %}
-    content: "note";
-    vertical-align: bottom;
-    padding-right: 0.1em;
-}
-
-.dir-listing .directory a::before {
-    {% call icon %}
-    content: "folder";
-    vertical-align: bottom;
-    padding-right: 0.1em;
-}
-
 time .separator {
     font-size: 90%;
     color: #999;
@@ -132,8 +154,6 @@ time .separator {
     font-style: normal;
     font-size: 2em;
     display: inline-block;
-    width: 1em;
-    height: 1em;
     line-height: 1;
     text-transform: none;
     letter-spacing: normal;

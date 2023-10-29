@@ -3,6 +3,7 @@ mod breadcrumbs;
 mod config;
 mod pages;
 mod storage;
+mod thumbnails;
 
 use crate::pages::configure_pages;
 

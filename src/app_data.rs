@@ -1,5 +1,7 @@
 use crate::config::Config;
 use crate::storage::Storage;
+use crate::thumbnails::{is_thumbnailable, CacheStats, CachedThumbnails};
+use actix_web::web::Bytes;
 use chrono::prelude::*;
 use chrono_tz::Tz;
 use relative_path::RelativePathBuf;
@@ -31,11 +33,46 @@ pub enum ResolvedObject {
     Directory(Vec<DirListingItem>),
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum ItemType {
+    Directory,
+    Image,
+
+    /// File of other/unknown type
+    File,
+}
+
+impl ItemType {
+    pub fn new(name: &str, metadata: &std::fs::Metadata) -> Self {
+        if is_thumbnailable(name) {
+            ItemType::Image
+        } else if metadata.is_dir() {
+            ItemType::Directory
+        } else {
+            ItemType::File
+        }
+    }
+
+    pub fn is_directory(&self) -> bool {
+        matches!(self, ItemType::Directory)
+    }
+
+    pub fn is_thumbnailable(&self) -> bool {
+        matches!(self, ItemType::Image)
+    }
+}
+
+impl std::fmt::Display for ItemType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+
 #[derive(Debug)]
 pub struct DirListingItem {
     pub name: Arc<str>,
     pub link: String,
-    pub is_directory: bool,
+    pub item_type: ItemType,
     pub file_size: u64,
     pub modified: Option<DateTime<Utc>>,
 }
@@ -54,15 +91,16 @@ impl DirListingItem {
         Ok(Some(Self::with_metadata(
             name.into(),
             link,
-            entry.metadata().await?,
+            &entry.metadata().await?,
         )))
     }
 
-    fn with_metadata(name: Arc<str>, link: String, metadata: std::fs::Metadata) -> Self {
+    fn with_metadata(name: Arc<str>, link: String, metadata: &std::fs::Metadata) -> Self {
+        let item_type = ItemType::new(name.as_ref(), metadata);
         DirListingItem {
             name,
             link,
-            is_directory: metadata.is_dir(),
+            item_type,
             file_size: metadata.len(),
             modified: metadata.modified().ok().map(Into::into),
         }
@@ -104,13 +142,19 @@ pub enum ObjectResolutionError {
 pub struct AppData {
     config: Config,
     objects: RwLock<Storage<Object>>,
+    thumbnails: CachedThumbnails,
 }
 
 impl AppData {
     pub fn with_config(config: Config) -> anyhow::Result<Self> {
         let path = config.data_path.join("metadata.json");
         let objects = RwLock::new(Storage::new(path)?);
-        Ok(AppData { config, objects })
+        let thumbnail_cache_size = config.thumbnail_cache_size;
+        Ok(AppData {
+            config,
+            objects,
+            thumbnails: CachedThumbnails::new(thumbnail_cache_size),
+        })
     }
 
     pub fn get_download_base_url(&self) -> &str {
@@ -123,6 +167,18 @@ impl AppData {
 
     pub fn get_display_timezone(&self) -> &Tz {
         &self.config.display_timezone
+    }
+
+    pub async fn get_thumbnail(
+        &self,
+        file: PathBuf,
+        size: (u32, u32),
+    ) -> anyhow::Result<(Bytes, String)> {
+        self.thumbnails.get(file, size).await
+    }
+
+    pub async fn get_thumbnail_cache_stats(&self) -> CacheStats {
+        self.thumbnails.cache_stats().await
     }
 
     fn get_object_path(&self, object_id: &str, obj: &Object) -> PathBuf {
@@ -193,7 +249,7 @@ impl AppData {
             result.push(DirListingItem::with_metadata(
                 Arc::clone(key),
                 format!("{}/{}", self.config.download_url, key),
-                metadata,
+                &metadata,
             ));
         }
 

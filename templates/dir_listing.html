@@ -11,10 +11,14 @@
     {% else %}
     <ul class="dir-listing">
         {% for item in items %}
-        <li class="{% if item.is_directory %}directory{% else %}file{% endif %}">
-            <a class="name" href="{{ download_base_url }}/{% if !directory_path.is_empty() %}{{ directory_path }}/{% endif %}{{ item.name }}">{{ item.name }}{% if item.is_directory %}/{% endif %}</a>
+        <li class="{{ item.item_type }}">
+            <a class="main_link" href="{{ download_base_url }}/{% if !directory_path.is_empty() %}{{ directory_path }}/{% endif %}{{ item.name }}">
+                {%- if item.item_type.is_thumbnailable() -%}
+                    <img class="thumbnail" src="{{ download_base_url }}/{% if !directory_path.is_empty() %}{{ directory_path }}/{% endif %}{{ item.name }}?mode=thumb64" loading="lazy" />
+                {%- endif -%}
+                <span class="underlined">{{ item.name }}{% if item.item_type.is_directory() %}/{% endif %}</span></a>
             <div class="details">
-                {% if !item.is_directory %}<span class="size">{{ item.file_size|filesizeformat }}</span>{% endif %}
+                {% if !item.item_type.is_directory() %}<span class="size">{{ item.file_size|filesizeformat }}</span>{% endif %}
                 {{ item.modified|time_format(display_timezone)|safe }}
             </div>
         </li>

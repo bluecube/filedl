@@ -11,7 +11,7 @@ use actix_web::{
 use askama::Template;
 use chrono_tz::Tz;
 use serde::Deserialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -25,6 +25,9 @@ enum DownloadMode {
     #[default]
     Default,
     Internal,
+    Thumb64,
+    Thumb128,
+    Thumb256,
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,9 +68,12 @@ impl From<ObjectResolutionError> for UserError {
     }
 }
 
+// TODO: Responsive images
 #[derive(Template)]
 #[template(path = "dir_listing.html")]
 struct DirListingTemplate<'a> {
+    // TODO: Make a nice constructor.
+    // TODO: Proper URL escaping!
     app_name: &'a str,
     display_timezone: &'a Tz,
 
@@ -90,8 +96,13 @@ async fn index_redirect() -> impl Responder {
 }
 
 #[get("/admin")]
-async fn admin(app: web::Data<AppData>) -> impl Responder {
+async fn admin(app: web::Data<Arc<AppData>>) -> impl Responder {
     "TODO"
+}
+
+#[get("/admin/thumbnail_cache_stats")]
+async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
+    HttpResponse::Ok().json(app.get_thumbnail_cache_stats().await)
 }
 
 #[get("/download")]
@@ -130,7 +141,12 @@ async fn download_object(
             .await?;
 
         match resolved_object {
-            ResolvedObject::File(f) => file_download(&f).await.map(Either::Left),
+            ResolvedObject::File(f) => match query.mode {
+                DownloadMode::Thumb64 => thumb_download(&app, f, 64).await.map(Either::Right),
+                DownloadMode::Thumb128 => thumb_download(&app, f, 128).await.map(Either::Right),
+                DownloadMode::Thumb256 => thumb_download(&app, f, 256).await.map(Either::Right),
+                _ => file_download(&f).await.map(Either::Left),
+            },
             ResolvedObject::Directory(items) => dir_listing(&app, &object_path, &items)
                 .await
                 .map(Either::Right),
@@ -152,6 +168,22 @@ async fn file_download(f: &Path) -> Result<NamedFile, UserError> {
     NamedFile::open_async(f)
         .await
         .map_err(|_| UserError::InternalError)
+}
+
+async fn thumb_download(app: &AppData, f: PathBuf, size: u32) -> Result<HttpResponse, UserError> {
+    let (thumb, hash) = app
+        .get_thumbnail(f, (size, size))
+        .await
+        .map_err(|_| UserError::InternalError)?;
+    Ok(HttpResponse::Ok()
+        .insert_header(header::ContentType(mime::IMAGE_JPEG))
+        .insert_header(header::ETag(header::EntityTag::new_strong(hash)))
+        .body(thumb))
+
+    // TODO: Support HEAD request, that only verifies the cache hash, and doesn't
+    // recompute the thumbnail unless necessary (if client has the image cached, but
+    // is unsure about the validity, and we don't have it cached any more)
+    // TODO: Proper browser caching control
 }
 
 async fn dir_listing(
@@ -182,6 +214,7 @@ pub fn configure_pages(cfg: &mut web::ServiceConfig) {
     cfg.default_service(web::to(default_service))
         .service(index_redirect)
         .service(admin)
+        .service(thumbnail_cache_stats)
         .service(download_root)
         .service(download_object);
 }
@@ -205,3 +238,5 @@ mod filters {
         ))
     }
 }
+
+// TODO: Handle internal errors better, clean up all map_err. Use logging.
