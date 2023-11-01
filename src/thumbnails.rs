@@ -1,6 +1,6 @@
 use actix_web::web::Bytes;
 use anyhow;
-use image::{imageops, GenericImageView, ImageFormat};
+use image::{imageops, GenericImageView, ImageBuffer, ImageFormat, Pixel};
 use lru::LruCache;
 use serde::Serialize;
 use std::hash::{Hash, Hasher};
@@ -141,15 +141,17 @@ impl CacheKey {
 }
 
 pub fn create_thumbnail(file: &Path, size: (u32, u32)) -> anyhow::Result<Bytes> {
+    let orientation = get_orientation(file)?;
     let img = image::open(file)?;
 
+    // TODO: Fix orientation for non-square non-centered crops
     let (crop_x, crop_y, crop_width, crop_height) = crop_coordinates(img.dimensions(), size);
     let subimage = img.crop_imm(crop_x, crop_y, crop_width, crop_height);
 
     let resized = imageops::resize(&subimage, size.0, size.1, imageops::FilterType::Lanczos3);
+    let resized = fix_orientation(resized, orientation);
 
     // TODO: Go faster!
-    // TODO: Fix orientation: https://github.com/image-rs/image/issues/1958
 
     let mut bytes: Vec<u8> = Vec::new();
     resized.write_to(
@@ -169,6 +171,55 @@ pub fn is_thumbnailable(filename: &str) -> bool {
     };
 
     format.can_read()
+}
+
+fn get_orientation(path: &Path) -> anyhow::Result<u32> {
+    let file = std::fs::File::open(path)?;
+    let mut bufreader = std::io::BufReader::new(file);
+    let exifreader = exif::Reader::new();
+    let exif_tags = exifreader.read_from_container(&mut bufreader)?;
+
+    Ok(
+        match exif_tags.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
+            Some(orientation) => match orientation.value.get_uint(0) {
+                Some(v @ 1..=8) => v,
+                _ => 1,
+            },
+            None => 1,
+        },
+    )
+}
+
+fn fix_orientation<Px: 'static + Pixel>(
+    mut img: ImageBuffer<Px, Vec<Px::Subpixel>>,
+    orientation: u32,
+) -> ImageBuffer<Px, Vec<Px::Subpixel>> {
+    match orientation {
+        1 => img,
+        2 => {
+            imageops::flip_horizontal_in_place(&mut img);
+            img
+        }
+        3 => {
+            imageops::rotate180_in_place(&mut img);
+            img
+        }
+        4 => {
+            imageops::flip_vertical_in_place(&mut img);
+            img
+        }
+        5 => {
+            imageops::flip_horizontal_in_place(&mut img);
+            imageops::rotate270(&img)
+        }
+        6 => imageops::rotate90(&img),
+        7 => {
+            imageops::flip_horizontal_in_place(&mut img);
+            imageops::rotate90(&img)
+        }
+        8 => imageops::rotate270(&img),
+        _ => unreachable!(),
+    }
 }
 
 /// Given original image size and target thumbnail size, finds subimage x, y, width, height in the
