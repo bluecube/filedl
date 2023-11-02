@@ -79,9 +79,8 @@ impl CachedThumbnails {
 
         // Here we pass the path through the closure, so that the compiler understands
         // that it will live long enough.
-        let path = key.path;
         let (thumbnail, path) = spawn_blocking(move || {
-            let path = path;
+            let path = key.path;
             let thumbnail = create_thumbnail(&path, size);
             (thumbnail, path)
         })
