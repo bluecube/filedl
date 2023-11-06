@@ -1,10 +1,12 @@
 use actix_web::web::Bytes;
-use anyhow;
-use image::{imageops, GenericImageView, ImageBuffer, ImageFormat, Pixel, Rgb, Rgba};
+use image::{
+    imageops, DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Pixel, Rgb, RgbImage,
+};
 use lru::LruCache;
 use serde::Serialize;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tokio::{fs, sync::Mutex, task::spawn_blocking};
@@ -139,22 +141,19 @@ impl CacheKey {
 }
 
 pub fn create_thumbnail(file: &Path, size: (u32, u32)) -> anyhow::Result<Bytes> {
-    let orientation = get_orientation(file)?;
     let img = image::open(file)?;
+    let orientation = get_orientation(file)?;
 
     // TODO: Fix orientation for non-square non-centered crops
-    let (crop_x, crop_y, crop_width, crop_height) = crop_coordinates(img.dimensions(), size);
-    let subimage = img.crop_imm(crop_x, crop_y, crop_width, crop_height);
+    let crop_coords = crop_coordinates(img.dimensions(), size);
 
-    let resized = imageops::resize(&subimage, size.0, size.1, imageops::FilterType::Lanczos3);
-    let resized_and_reoriented = fix_orientation(resized, orientation);
-    let final_thumb = blend_background(resized_and_reoriented, [0xDA, 0xE1, 0xE4].into());
     // TODO: Don't hardcode background color
-
-    // TODO: Go faster!
+    let rgb_img = normalize_layers(img, [0xDA, 0xE1, 0xE4].into());
+    let resized = crop_and_resize(rgb_img, crop_coords, size);
+    let resized_and_reoriented = fix_orientation(resized, orientation);
 
     let mut bytes: Vec<u8> = Vec::new();
-    final_thumb.write_to(
+    resized_and_reoriented.write_to(
         &mut Cursor::new(&mut bytes),
         image::ImageOutputFormat::Jpeg(85),
     )?;
@@ -171,6 +170,52 @@ pub fn is_thumbnailable(filename: &str) -> bool {
     };
 
     format.can_read()
+}
+
+fn crop_and_resize(
+    img: RgbImage,
+    crop_coords: (u32, u32, u32, u32),
+    new_size: (u32, u32),
+) -> RgbImage {
+    use fast_image_resize::{CropBox, FilterType, Image, PixelType, ResizeAlg, Resizer};
+
+    let src_image = Image::from_vec_u8(
+        NonZeroU32::new(img.width()).unwrap(),
+        NonZeroU32::new(img.height()).unwrap(),
+        img.into_raw(),
+        PixelType::U8x3,
+    )
+    .unwrap();
+
+    // Create container for data of destination image
+    let mut dst_image = Image::new(
+        NonZeroU32::new(new_size.0).unwrap(),
+        NonZeroU32::new(new_size.1).unwrap(),
+        PixelType::U8x3,
+    );
+
+    let mut src_view = src_image.view();
+    src_view
+        .set_crop_box(CropBox {
+            left: crop_coords.0,
+            top: crop_coords.1,
+            width: NonZeroU32::new(crop_coords.2)
+                .expect("Guaranteed to succeed by crop_coordinates()"),
+            height: NonZeroU32::new(crop_coords.3)
+                .expect("Guaranteed to succeed by crop_coordinates()"),
+        })
+        .expect("Guaranteed to succeed by crop_coordinates()");
+
+    // Get mutable view of destination image data
+    let mut dst_view = dst_image.view_mut();
+
+    // Create Resizer instance and resize source image
+    // into buffer of destination image
+    let mut resizer = Resizer::new(ResizeAlg::Convolution(FilterType::Lanczos3));
+
+    resizer.resize(&src_view, &mut dst_view).unwrap();
+
+    RgbImage::from_vec(new_size.0, new_size.1, dst_image.into_vec()).unwrap()
 }
 
 fn get_orientation(path: &Path) -> anyhow::Result<u32> {
@@ -224,23 +269,49 @@ fn fix_orientation<Px: 'static + Pixel>(
     }
 }
 
-fn blend_background(
-    mut img: ImageBuffer<Rgba<u8>, Vec<u8>>,
-    background_color: Rgb<u8>,
-) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
-    let bg = background_color.to_rgba();
-    img.pixels_mut().for_each(|px| {
-        let a: u16 = px.channels()[3].into();
-        let na = 255 - a;
-        px.apply2(&bg, |fg, bg| -> u8 {
-            ((a * u16::from(fg) + na * u16::from(bg)) / 255)
-                .try_into()
-                .unwrap()
-        });
-        px.channels_mut()[3] = 255;
-    });
+fn normalize_layers(img: DynamicImage, background_color: Rgb<u8>) -> RgbImage {
+    if img.color().has_alpha() {
+        blend_background(img.into_rgba8(), background_color)
+    } else {
+        img.into_rgb8()
+    }
+}
 
-    img
+fn blend_background<Px>(
+    img: ImageBuffer<Px, Vec<Px::Subpixel>>,
+    background_color: Rgb<u8>,
+) -> RgbImage
+where
+    Px: Pixel,
+    <Px as image::Pixel>::Subpixel: Into<u32>,
+{
+    let mut ret = ImageBuffer::new(img.width(), img.height());
+
+    use image::Primitive;
+    let max: u32 = (Px::Subpixel::DEFAULT_MAX_VALUE).into();
+    let scale: u32 = max * max / 255;
+
+    for (from, to) in img.pixels().zip(ret.pixels_mut()) {
+        let from_channels = from.channels();
+        let bg_channels = background_color.channels();
+
+        let a: u32 = from.channels()[3].into();
+        let na = max - a;
+
+        let blend = |fg: Px::Subpixel, bg: u8| -> u8 {
+            let fg: u32 = fg.into();
+            let bg: u32 = bg.into();
+
+            ((fg * a) / scale + (bg * na) / max).try_into().unwrap()
+        };
+        *to = Rgb([
+            blend(from_channels[0], bg_channels[0]),
+            blend(from_channels[1], bg_channels[1]),
+            blend(from_channels[2], bg_channels[2]),
+        ]);
+    }
+
+    ret
 }
 
 /// Given original image size and target thumbnail size, finds subimage x, y, width, height in the
