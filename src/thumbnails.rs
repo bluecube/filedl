@@ -24,6 +24,18 @@ struct CacheKey {
 }
 
 impl CacheKey {
+    async fn new(path: PathBuf, size: (u32, u32)) -> anyhow::Result<CacheKey> {
+        let metadata = fs::metadata(&path).await?;
+        Ok(CacheKey {
+            path,
+            size: metadata.len(),
+            modtime: metadata.modified().ok(),
+
+            width: size.0,
+            height: size.1,
+        })
+    }
+
     fn hash_string(&self) -> String {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.hash(&mut hasher);
@@ -123,20 +135,6 @@ impl CachedThumbnails {
             max_size: self.max_size,
             hit_rate: locked.hit_rate,
         }
-    }
-}
-
-impl CacheKey {
-    async fn new(path: PathBuf, size: (u32, u32)) -> anyhow::Result<CacheKey> {
-        let metadata = fs::metadata(&path).await?;
-        Ok(CacheKey {
-            path,
-            size: metadata.len(),
-            modtime: metadata.modified().ok(),
-
-            width: size.0,
-            height: size.1,
-        })
     }
 }
 
