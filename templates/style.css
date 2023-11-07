@@ -79,7 +79,7 @@ ul.dir-listing {
     align-items: center;
 }
 
-.dir-listing a.main_link {
+.dir-listing a.main-link {
     display: block;
     margin-right: auto;
     overflow-wrap: break-word;
@@ -87,7 +87,7 @@ ul.dir-listing {
     text-decoration: none;
 }
 
-.dir-listing a.main_link .underlined {
+.dir-listing a.main-link .underlined {
     text-decoration: underline;
     margin-left: 0.5em;
 }
@@ -100,7 +100,7 @@ ul.dir-listing {
     margin-left: -4rem;
 }
 
-.dir-listing a.main_link::before {
+.dir-listing a.main-link::before {
     {% call icon %}
     box-sizing: border-box;
     border: 0.05em solid #999;
@@ -113,15 +113,15 @@ ul.dir-listing {
     line-height: 3.8rem;
 }
 
-.dir-listing a.main_link::before {
+.dir-listing a.main-link::before {
     content: "note";
 }
 
-.dir-listing .directory a.main_link::before {
+.dir-listing .directory a.main-link::before {
     content: "folder";
 }
 
-.dir-listing .image a.main_link::before {
+.dir-listing .image a.main-link::before {
     content: "image";
 }
 
