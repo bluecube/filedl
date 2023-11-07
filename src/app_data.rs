@@ -6,9 +6,12 @@ use chrono::prelude::*;
 use chrono_tz::Tz;
 use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
+use std::fs::Metadata;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::SystemTime;
 use thiserror::Error;
 use tokio::{fs, sync::RwLock};
 
@@ -33,18 +36,17 @@ pub enum ResolvedObject {
     Directory(Vec<DirListingItem>),
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum ItemType {
     Directory,
     Image,
-
     /// File of other/unknown type
     File,
 }
 
 impl ItemType {
-    pub fn new(name: &str, metadata: &std::fs::Metadata) -> Self {
-        if is_thumbnailable(name) {
+    pub fn new(path: &Path, metadata: &Metadata) -> Self {
+        if is_thumbnailable(path) {
             ItemType::Image
         } else if metadata.is_dir() {
             ItemType::Directory
@@ -68,6 +70,38 @@ impl std::fmt::Display for ItemType {
     }
 }
 
+/// Describes a source file for cache busting
+#[derive(Hash, Debug, PartialEq, Eq)]
+struct CacheSourceKey<'a> {
+    path: &'a Path,
+    size: u64,
+    modtime: Option<SystemTime>,
+}
+
+impl<'a> CacheSourceKey<'a> {
+    fn with_metadata(path: &'a Path, metadata: &Metadata) -> CacheSourceKey<'a> {
+        CacheSourceKey {
+            path,
+            size: metadata.len(),
+            modtime: metadata.modified().ok(),
+        }
+    }
+
+    fn hash_string(&self) -> String {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.hash(&mut hasher);
+        format!("{:X}", hasher.finish())
+    }
+}
+
+fn get_source_hash(path: &Path, metadata: &Metadata) -> Option<String> {
+    if metadata.is_dir() {
+        None
+    } else {
+        Some(CacheSourceKey::with_metadata(path, metadata).hash_string())
+    }
+}
+
 #[derive(Debug)]
 pub struct DirListingItem {
     pub name: Arc<str>,
@@ -75,6 +109,7 @@ pub struct DirListingItem {
     pub item_type: ItemType,
     pub file_size: u64,
     pub modified: Option<DateTime<Utc>>,
+    pub source_hash: Option<String>,
 }
 
 impl DirListingItem {
@@ -89,20 +124,22 @@ impl DirListingItem {
         };
         let link = format!("{directory_base_url}/{name}");
         Ok(Some(Self::with_metadata(
+            &entry.path(),
             name.into(),
             link,
             &entry.metadata().await?,
         )))
     }
 
-    fn with_metadata(name: Arc<str>, link: String, metadata: &std::fs::Metadata) -> Self {
-        let item_type = ItemType::new(name.as_ref(), metadata);
+    fn with_metadata(path: &Path, name: Arc<str>, link: String, metadata: &Metadata) -> Self {
+        let item_type = ItemType::new(path, metadata);
         DirListingItem {
             name,
             link,
             item_type,
             file_size: metadata.len(),
             modified: metadata.modified().ok().map(Into::into),
+            source_hash: get_source_hash(path, metadata),
         }
     }
 }
@@ -245,8 +282,10 @@ impl AppData {
         let mut result = Vec::new();
 
         for (key, obj) in self.objects.read().await.iter() {
-            let metadata = fs::metadata(self.get_object_path(key, obj)).await?;
+            let path = self.get_object_path(key, obj);
+            let metadata = fs::metadata(&path).await?;
             result.push(DirListingItem::with_metadata(
+                &path,
                 Arc::clone(key),
                 format!("{}/{}", self.config.download_url, key),
                 &metadata,

@@ -35,6 +35,21 @@ struct DownloadQuery {
     key: Option<String>,
     #[serde(default)]
     mode: DownloadMode,
+    #[serde(default)]
+    cache_hash: Option<String>,
+}
+
+/// generate a cache control header based on the cache_hash received
+fn cache_control(cache_hash: Option<&str>) -> (&'static str, &'static str) {
+    (
+        "Cache-Control",
+        if cache_hash.is_some() {
+            // 1 year
+            "max-age=31536000, immutable"
+        } else {
+            "no-cache"
+        },
+    )
 }
 
 /// User visible error
@@ -142,9 +157,15 @@ async fn download_object(
 
         match resolved_object {
             ResolvedObject::File(f) => match query.mode {
-                DownloadMode::Thumb64 => thumb_download(&app, f, 64).await.map(Either::Right),
-                DownloadMode::Thumb128 => thumb_download(&app, f, 128).await.map(Either::Right),
-                DownloadMode::Thumb256 => thumb_download(&app, f, 256).await.map(Either::Right),
+                DownloadMode::Thumb64 => thumb_download(&app, f, 64, query.cache_hash.as_deref())
+                    .await
+                    .map(Either::Right),
+                DownloadMode::Thumb128 => thumb_download(&app, f, 128, query.cache_hash.as_deref())
+                    .await
+                    .map(Either::Right),
+                DownloadMode::Thumb256 => thumb_download(&app, f, 256, query.cache_hash.as_deref())
+                    .await
+                    .map(Either::Right),
                 _ => file_download(&f).await.map(Either::Left),
             },
             ResolvedObject::Directory(items) => dir_listing(&app, &object_path, &items)
@@ -157,6 +178,7 @@ async fn download_object(
 async fn stylesheet() -> Result<HttpResponse, UserError> {
     Ok(HttpResponse::Ok()
         .insert_header(header::ContentType(mime::TEXT_CSS))
+        .insert_header(("Cache-Control", "max-age=7200"))
         .body(
             StylesheetTemplate {}
                 .render()
@@ -170,7 +192,12 @@ async fn file_download(f: &Path) -> Result<NamedFile, UserError> {
         .map_err(|_| UserError::InternalError)
 }
 
-async fn thumb_download(app: &AppData, f: PathBuf, size: u32) -> Result<HttpResponse, UserError> {
+async fn thumb_download(
+    app: &AppData,
+    f: PathBuf,
+    size: u32,
+    cache_hash: Option<&str>,
+) -> Result<HttpResponse, UserError> {
     let (thumb, hash) = app
         .get_thumbnail(f, (size, size))
         .await
@@ -178,6 +205,7 @@ async fn thumb_download(app: &AppData, f: PathBuf, size: u32) -> Result<HttpResp
     Ok(HttpResponse::Ok()
         .insert_header(header::ContentType(mime::IMAGE_JPEG))
         .insert_header(header::ETag(header::EntityTag::new_strong(hash)))
+        .insert_header(cache_control(cache_hash))
         .body(thumb))
 
     // TODO: Support HEAD request, that only verifies the cache hash, and doesn't
@@ -191,7 +219,7 @@ async fn dir_listing(
     object_path: &str,
     items: &[DirListingItem],
 ) -> Result<HttpResponse, UserError> {
-    Ok(HttpResponse::Ok().body(
+    Ok(HttpResponse::Ok().insert_header(cache_control(None)).body(
         DirListingTemplate {
             app_name: app.get_app_name(),
             display_timezone: app.get_display_timezone(),

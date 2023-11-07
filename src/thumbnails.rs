@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tokio::{fs, sync::Mutex, task::spawn_blocking};
 
+/// Describes a cached rendered thumbnail
 #[derive(Hash, Debug, PartialEq, Eq)]
 struct CacheKey {
     // First three arguments deal with the source file:
@@ -158,11 +159,18 @@ pub fn create_thumbnail(file: &Path, size: (u32, u32)) -> anyhow::Result<Bytes> 
     Ok(bytes.into())
 }
 
-pub fn is_thumbnailable(filename: &str) -> bool {
+/// Returns a hash describing the source image, if it is thumbnailable,
+/// otherwise returns None.
+pub fn is_thumbnailable(path: &Path) -> bool {
+    let Some(filename) = path.file_name() else {
+        return false;
+    };
+    let Some(filename) = filename.to_str() else {
+        return false;
+    };
     let Some((_, extension)) = filename.rsplit_once('.') else {
         return false;
     };
-
     let Some(format) = ImageFormat::from_extension(extension) else {
         return false;
     };
