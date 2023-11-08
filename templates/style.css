@@ -18,7 +18,7 @@ body {
     clip-path: inset(0 -100vmax);
 }
 
-#footer {
+footer {
     text-align: right;
 }
 
@@ -81,7 +81,6 @@ ul.dir-listing {
 
 .dir-listing a.main-link {
     display: block;
-    margin-right: auto;
     overflow-wrap: break-word;
     max-width: 100%;
     text-decoration: none;

@@ -5,7 +5,7 @@
     {% if !app_name.is_empty() %}<div class="app_name">{{ app_name }}</div>{% endif %}
     <h1 class="breadcrumbs"><a class="home" href="{{ download_base_url }}">home</a>{% for piece in directory_breadcrumbs %}/<a href="{{ download_base_url }}/{{ piece.link_url }}">{{ piece.name }}</a>{% endfor %}</h1>
 </nav>
-<div id="content">
+<section id="content">
     {% if items.is_empty() %}
     <div class="empty-dir-listing">No data</div>
     {% else %}
@@ -26,5 +26,5 @@
         {% endfor %}
     </ul>
     {% endif %}
-</div>
+</section>
 {% endblock %}
