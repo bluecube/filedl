@@ -96,11 +96,13 @@ struct DirListingTemplate<'a> {
 
     directory_path: &'a str,
     directory_breadcrumbs: BreadcrumbsIterator<'a>,
-    items: &'a [DirListingItem],
+    items: Vec<DirListingItem>,
 }
 
 impl<'a> DirListingTemplate<'a> {
-    fn new(app: &'a AppData, object_path: &'a str, items: &'a [DirListingItem]) -> DirListingTemplate<'a> {
+    fn new(app: &'a AppData, object_path: &'a str, mut items: Vec<DirListingItem>) -> DirListingTemplate<'a> {
+        let mut collator = feruca::Collator::default();
+        items.sort_unstable_by(|a, b| collator.collate(a.name.as_bytes(), b.name.as_bytes()));
         DirListingTemplate {
             app_name: app.get_app_name(),
             display_timezone: app.get_display_timezone(),
@@ -136,9 +138,8 @@ async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
 
 #[get("/download")]
 async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse, UserError> {
-    let objects = app.list_objects().await?;
     Ok(HttpResponse::Ok().body(
-        DirListingTemplate::new(&app, "", &objects)
+        DirListingTemplate::new(&app, "", app.list_objects().await?)
         .render()
         .map_err(|_| UserError::InternalError)?,
     ))
@@ -177,7 +178,7 @@ async fn download_object(
                     .map(Either::Right),
                 _ => file_download(&f).await.map(Either::Left),
             },
-            ResolvedObject::Directory(items) => dir_listing(&app, &object_path, &items)
+            ResolvedObject::Directory(items) => dir_listing(&app, &object_path, items)
                 .await
                 .map(Either::Right),
         }
@@ -232,7 +233,7 @@ async fn thumb_download(
 async fn dir_listing(
     app: &AppData,
     object_path: &str,
-    items: &[DirListingItem],
+    items: Vec<DirListingItem>,
 ) -> Result<HttpResponse, UserError> {
     Ok(HttpResponse::Ok().insert_header(cache_control(None)).body(
         DirListingTemplate::new(app, object_path, items)
