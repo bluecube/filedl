@@ -87,7 +87,6 @@ impl From<ObjectResolutionError> for UserError {
 #[derive(Template)]
 #[template(path = "dir_listing.html")]
 struct DirListingTemplate<'a> {
-    // TODO: Make a nice constructor.
     // TODO: Proper URL escaping!
     app_name: &'a str,
     display_timezone: &'a Tz,
@@ -98,6 +97,20 @@ struct DirListingTemplate<'a> {
     directory_path: &'a str,
     directory_breadcrumbs: BreadcrumbsIterator<'a>,
     items: &'a [DirListingItem],
+}
+
+impl<'a> DirListingTemplate<'a> {
+    fn new(app: &'a AppData, object_path: &'a str, items: &'a [DirListingItem]) -> DirListingTemplate<'a> {
+        DirListingTemplate {
+            app_name: app.get_app_name(),
+            display_timezone: app.get_display_timezone(),
+            download_base_url: app.get_download_base_url(),
+            static_content_hash: app.get_static_content_hash(),
+            directory_path: object_path,
+            directory_breadcrumbs: BreadcrumbsIterator::new(object_path),
+            items,
+        }
+    }
 }
 
 #[derive(Template, Default)]
@@ -125,15 +138,7 @@ async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
 async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse, UserError> {
     let objects = app.list_objects().await?;
     Ok(HttpResponse::Ok().body(
-        DirListingTemplate {
-            app_name: app.get_app_name(),
-            display_timezone: app.get_display_timezone(),
-            download_base_url: app.get_download_base_url(),
-            static_content_hash: app.get_static_content_hash(),
-            directory_path: "",
-            directory_breadcrumbs: BreadcrumbsIterator::new(""),
-            items: &objects,
-        }
+        DirListingTemplate::new(&app, "", &objects)
         .render()
         .map_err(|_| UserError::InternalError)?,
     ))
@@ -230,15 +235,7 @@ async fn dir_listing(
     items: &[DirListingItem],
 ) -> Result<HttpResponse, UserError> {
     Ok(HttpResponse::Ok().insert_header(cache_control(None)).body(
-        DirListingTemplate {
-            app_name: app.get_app_name(),
-            display_timezone: app.get_display_timezone(),
-            download_base_url: app.get_download_base_url(),
-            static_content_hash: app.get_static_content_hash(),
-            directory_path: object_path,
-            directory_breadcrumbs: BreadcrumbsIterator::new(object_path),
-            items,
-        }
+        DirListingTemplate::new(app, object_path, items)
         .render()
         .map_err(|_| UserError::InternalError)?,
     ))
