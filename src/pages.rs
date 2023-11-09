@@ -91,9 +91,10 @@ struct DirListingTemplate<'a> {
     // TODO: Proper URL escaping!
     app_name: &'a str,
     display_timezone: &'a Tz,
-
     /// List of path elements to this directory, rooted at the download directory
     download_base_url: &'a str,
+    static_content_hash: &'a str,
+
     directory_path: &'a str,
     directory_breadcrumbs: BreadcrumbsIterator<'a>,
     items: &'a [DirListingItem],
@@ -128,6 +129,7 @@ async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse, Use
             app_name: app.get_app_name(),
             display_timezone: app.get_display_timezone(),
             download_base_url: app.get_download_base_url(),
+            static_content_hash: app.get_static_content_hash(),
             directory_path: "",
             directory_breadcrumbs: BreadcrumbsIterator::new(""),
             items: &objects,
@@ -147,7 +149,9 @@ async fn download_object(
 
     if query.mode == DownloadMode::Internal {
         match object_path.as_str() {
-            "style.css" => stylesheet().await.map(Either::Right),
+            "style.css" => stylesheet(query.cache_hash.as_deref())
+                .await
+                .map(Either::Right),
             &_ => Err(UserError::NotFound),
         }
     } else {
@@ -175,10 +179,10 @@ async fn download_object(
     }
 }
 
-async fn stylesheet() -> Result<HttpResponse, UserError> {
+async fn stylesheet(cache_hash: Option<&str>) -> Result<HttpResponse, UserError> {
     Ok(HttpResponse::Ok()
         .insert_header(header::ContentType(mime::TEXT_CSS))
-        .insert_header(("Cache-Control", "max-age=7200"))
+        .insert_header(cache_control(cache_hash))
         .body(
             StylesheetTemplate {}
                 .render()
@@ -224,6 +228,7 @@ async fn dir_listing(
             app_name: app.get_app_name(),
             display_timezone: app.get_display_timezone(),
             download_base_url: app.get_download_base_url(),
+            static_content_hash: app.get_static_content_hash(),
             directory_path: object_path,
             directory_breadcrumbs: BreadcrumbsIterator::new(object_path),
             items,

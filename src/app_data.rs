@@ -4,6 +4,7 @@ use crate::thumbnails::{is_thumbnailable, CacheStats, CachedThumbnails};
 use actix_web::web::Bytes;
 use chrono::prelude::*;
 use chrono_tz::Tz;
+use rand::{thread_rng, RngCore};
 use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 use std::fs::Metadata;
@@ -180,6 +181,7 @@ pub struct AppData {
     config: Config,
     objects: RwLock<Storage<Object>>,
     thumbnails: CachedThumbnails,
+    static_content_hash: String,
 }
 
 impl AppData {
@@ -187,10 +189,12 @@ impl AppData {
         let path = config.data_path.join("metadata.json");
         let objects = RwLock::new(Storage::new(path)?);
         let thumbnail_cache_size = config.thumbnail_cache_size;
+        let static_content_hash = format!("{:X}", thread_rng().next_u32());
         Ok(AppData {
             config,
             objects,
             thumbnails: CachedThumbnails::new(thumbnail_cache_size),
+            static_content_hash,
         })
     }
 
@@ -204,6 +208,10 @@ impl AppData {
 
     pub fn get_display_timezone(&self) -> &Tz {
         &self.config.display_timezone
+    }
+
+    pub fn get_static_content_hash(&self) -> &str {
+        &self.static_content_hash
     }
 
     pub async fn get_thumbnail(
