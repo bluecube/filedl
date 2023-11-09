@@ -100,7 +100,7 @@ struct DirListingTemplate<'a> {
     items: &'a [DirListingItem],
 }
 
-#[derive(Template)]
+#[derive(Template, Default)]
 #[template(path = "style.css", escape = "none")]
 struct StylesheetTemplate {}
 
@@ -149,7 +149,7 @@ async fn download_object(
 
     if query.mode == DownloadMode::Internal {
         match object_path.as_str() {
-            "style.css" => stylesheet(query.cache_hash.as_deref())
+            "style.css" => static_content::<StylesheetTemplate>(query.cache_hash.as_deref())
                 .await
                 .map(Either::Right),
             &_ => Err(UserError::NotFound),
@@ -179,12 +179,18 @@ async fn download_object(
     }
 }
 
-async fn stylesheet(cache_hash: Option<&str>) -> Result<HttpResponse, UserError> {
+async fn static_content<Tmpl: Template + Default>(
+    cache_hash: Option<&str>,
+) -> Result<HttpResponse, UserError> {
     Ok(HttpResponse::Ok()
-        .insert_header(header::ContentType(mime::TEXT_CSS))
+        .insert_header(header::ContentType(
+            Tmpl::MIME_TYPE
+                .parse()
+                .expect("Askama's MIME string should be valid"),
+        ))
         .insert_header(cache_control(cache_hash))
         .body(
-            StylesheetTemplate {}
+            Tmpl::default()
                 .render()
                 .map_err(|_| UserError::InternalError)?,
         ))
