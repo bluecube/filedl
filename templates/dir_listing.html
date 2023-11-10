@@ -12,9 +12,9 @@
     <ul class="dir-listing">
         {% for item in items %}
         <li class="{{ item.item_type }}">
-            <a class="main-link" href="{{ download_base_url }}/{% if !directory_path.is_empty() %}{{ directory_path }}/{% endif %}{{ item.name }}">
+            <a class="main-link" href="{% call url(item) %}">
                 {%- if item.item_type.is_thumbnailable() -%}
-                    <img class="thumbnail" src="{{ download_base_url }}/{% if !directory_path.is_empty() %}{{ directory_path }}/{% endif %}{{ item.name }}?mode=thumb64{% match item.source_hash %}{% when Some with (h) %}&cache_hash={{ h }}{% when None %}{% endmatch %}" loading="lazy" />
+                    <img class="thumbnail" src="{% call thumb_url(item, 64) %}" loading="lazy" />
                 {%- endif -%}
                 <span class="underlined">{{ item.name }}{% if item.item_type.is_directory() %}/{% endif %}</span>
             </a>
@@ -28,3 +28,5 @@
     {% endif %}
 </section>
 {% endblock %}
+{% macro url(item) %}{{ download_base_url }}/{% if !directory_path.is_empty() %}{{ directory_path }}/{% endif %}{{ item.name }}{% endmacro %}
+{% macro thumb_url(item, size) %}{% call url(item) %}?mode=thumb{{ size }}{% match item.source_hash %}{% when Some with (h) %}&cache_hash={{ h }}{% when None %}{% endmatch %}{% endmacro %}
