@@ -140,7 +140,7 @@ impl CachedThumbnails {
 }
 
 pub fn create_thumbnail(file: &Path, size: (u32, u32)) -> anyhow::Result<Bytes> {
-    let img = image::open(file)?;
+    let img = open_image(file)?;
     let orientation = get_orientation(file)?;
 
     // TODO: Fix orientation for non-square non-centered crops
@@ -176,6 +176,12 @@ pub fn is_thumbnailable(path: &Path) -> bool {
     };
 
     format.can_read()
+}
+
+fn open_image(path: &Path) -> anyhow::Result<DynamicImage> {
+    let mut reader = image::io::Reader::open(path)?;
+    reader.no_limits();
+    Ok(reader.decode()?)
 }
 
 fn crop_and_resize(
