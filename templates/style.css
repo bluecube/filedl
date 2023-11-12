@@ -127,9 +127,10 @@ ul.dir-listing {
 a.download {
     {% call icon %}
     font-size: 1.5em;
+    padding: 0 .5rem;
     text-decoration: none;
     color: #333;
-    vertical-align: bottom;
+    vertical-align: middle;
 }
 
 
