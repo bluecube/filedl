@@ -2,3 +2,4 @@ target/
 .git/
 Dockerfile
 proptest-regressions
+test_env/
