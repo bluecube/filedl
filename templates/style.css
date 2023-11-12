@@ -124,6 +124,15 @@ ul.dir-listing {
     content: "image";
 }
 
+a.download {
+    {% call icon %}
+    font-size: 1.5em;
+    text-decoration: none;
+    color: #333;
+    vertical-align: bottom;
+}
+
+
 .dir-listing .details {
     display: flex;
     flex-direction: column;
@@ -145,6 +154,142 @@ ul.dir-listing {
 time .separator {
     font-size: 90%;
     color: #999;
+}
+
+#gallery {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.8);
+    display: none;
+
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: center;
+
+    opacity: 0;
+    transition: opacity 0.5s ease;
+}
+
+.gallery-visible #gallery {
+    display: flex;
+
+    opacity: 1;
+    transition: opacity 0.5s ease;
+}
+
+#gallery .img-wrap {
+    position: relative;
+    align-self: center;
+    width: 100%;
+    flex: 0 1 auto;
+    min-height: 0;
+}
+
+#gallery img {
+    max-width: 100%;
+    max-height: 100%;
+    /*object-fit: contain;*/
+    margin: 0 auto;
+    display: block;
+
+    opacity: 1;
+    transition: opacity 0.5s ease;
+}
+
+#gallery .img-wrap.loading img {
+    opacity: 0;
+    transition: opacity 0.5s ease;
+}
+
+#gallery .img-wrap:before {
+    {% call icon %}
+    content: "image";
+
+    opacity: 0;
+    transition: opacity 0.5s ease;
+
+    font-size: 50vmin;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+}
+
+#gallery .img-wrap.loading:before {
+    opacity: 1;
+    transition: opacity 0.5s ease;
+}
+
+#gallery .info {
+    min-height: 2em;
+    color: #ccc;
+    text-align: center;
+    flex: 1 0 auto;
+}
+
+#gallery .placeholder {
+    min-height: 0;
+    flex: 1 0 auto;
+}
+
+#gallery .download {
+    color: #ccc;
+}
+
+#gallery a.close, #gallery a.prev, #gallery a.next {
+    {% call icon %}
+
+    position: absolute;
+    font-size: 3rem;
+    text-decoration: none;
+
+    padding: 1em;
+    color: #333;
+    text-shadow: 0 0 0.02em #fff, 0 0 0.2em #fff;
+}
+
+#gallery a.close {
+    top: 0;
+    right: 0;
+    text-align: right;
+    width: 15vw;
+    height: 10vh;
+    z-index: 10;
+}
+
+#gallery a.prev, #gallery a.next {
+    width: 20vw;
+    max-width: 50%;
+    height: 15vh;
+    top: 50%;
+    transform: translate(0, -50%);
+    line-height: 15vh;
+}
+
+#gallery a.prev {
+    left: 0;
+    text-align: left;
+    z-index: 8;
+}
+
+#gallery a.next {
+    right: 0;
+    text-align: right;
+    z-index: 9;
+}
+
+#gallery .thumbnails {
+    width: 100%;
+    height: 20vh;
+    border: 1px solid red;
+    flex: none;
+}
+
+.hidden {
+    visibility: hidden;
 }
 
 {% macro icon %}

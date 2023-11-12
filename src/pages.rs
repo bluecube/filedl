@@ -119,6 +119,10 @@ impl<'a> DirListingTemplate<'a> {
 #[template(path = "style.css", escape = "none")]
 struct StylesheetTemplate {}
 
+#[derive(Template, Default)]
+#[template(path = "gallery.js", escape = "none")]
+struct GalleryJsTemplate {}
+
 #[routes]
 #[get("/index.html")]
 #[get("/")]
@@ -156,6 +160,9 @@ async fn download_object(
     if query.mode == DownloadMode::Internal {
         match object_path.as_str() {
             "style.css" => static_content::<StylesheetTemplate>(query.cache_hash.as_deref())
+                .await
+                .map(Either::Right),
+            "gallery.js" => static_content::<GalleryJsTemplate>(query.cache_hash.as_deref())
                 .await
                 .map(Either::Right),
             &_ => Err(UserError::NotFound),

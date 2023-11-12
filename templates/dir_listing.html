@@ -18,6 +18,9 @@
                 {%- endif -%}
                 <span class="underlined">{{ item.name }}{% if item.item_type.is_directory() %}/{% endif %}</span>
             </a>
+            {%- if !item.item_type.is_directory() %}
+            <a class="download" href="{% call url(item) %}">download</a>
+            {% endif %}
             <div class="details">
                 {% if !item.item_type.is_directory() %}<span class="size">{{ item.file_size|filesizeformat }}</span>{% endif %}
                 {{ item.modified|time_format(display_timezone)|safe }}
@@ -26,6 +29,17 @@
         {% endfor %}
     </ul>
     {% endif %}
+</section>
+<section id="gallery">
+    <a href="#" class="close">close</a>
+    <div class="placeholder"></div>
+    <div class="img-wrap">
+        <a href="#" class="prev">arrow_back</a>
+        <a href="#" class="next">arrow_forward</a>
+        <img src="data:," alt="Gallery image">
+    </div>
+    <div class="info"><span class="description"></span><a class="download" href="#">download</a></div>
+    <!--<div class="thumbnails"></div>-->
 </section>
 {% endblock %}
 {% macro url(item) %}{{ download_base_url }}/{% if !directory_path.is_empty() %}{{ directory_path }}/{% endif %}{{ item.name }}{% endmacro %}
