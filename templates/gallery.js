@@ -33,6 +33,8 @@ function galleryInit() {
 
     addEventListener("popstate", popstate);
     galleryImg.onload = imgOnload;
+    galleryBg.addEventListener("click", bgOnclick);
+    galleryImgWrap.addEventListener("click", bgOnclick);
     closeButton.addEventListener("click", closeOnclick);
 
     setCurrentBasedOnHash();
@@ -109,6 +111,14 @@ function setCurrentBasedOnHash() {
 function linkOnclick(event, index) {
     event.preventDefault();
     setCurrent(index);
+}
+
+function bgOnclick(event) {
+    console.log(event.target);
+    console.log(event.currentTarget);
+    if (event.target !== event.currentTarget)
+        return;
+    closeGallery();
 }
 
 function closeOnclick(event) {
