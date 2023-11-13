@@ -14,7 +14,7 @@
         <li class="{{ item.item_type }}">
             <a class="main-link" href="{% call url(item) %}">
                 {%- if item.item_type.is_thumbnailable() -%}
-                    <img class="thumbnail" src="{% call thumb_url(item, 64) %}" loading="lazy" />
+                    <img class="thumbnail" src="{% call thumb_url(item, 64) %}" srcset="{% for size in [64, 128, 256] %}{% call thumb_url(item, size) %} {{ size }}w, {% endfor %}" sizes="4em" loading="lazy" />
                 {%- endif -%}
                 <span class="underlined">{{ item.name }}{% if item.item_type.is_directory() %}/{% endif %}</span>
             </a>
