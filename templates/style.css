@@ -75,6 +75,7 @@ ul.dir-listing {
     padding: 0.3em;
     min-height: 2.5em;
     display: flex;
+    justify-content: flex-end;
     flex-wrap: wrap;
     align-items: center;
 }
@@ -84,6 +85,7 @@ ul.dir-listing {
     overflow-wrap: break-word;
     max-width: 100%;
     text-decoration: none;
+    flex: 1 0 auto;
 }
 
 .dir-listing a.main-link .underlined {
@@ -133,16 +135,21 @@ a.download {
     vertical-align: middle;
 }
 
+.dir-listing .details1 {
+    display: flex;
+    flex-direction: row;
+    flex: 0 0 auto;
+    align-items: center;
+}
 
-.dir-listing .details {
+.dir-listing .details2 {
     display: flex;
     flex-direction: column;
     text-align: right;
     max-width: 100%;
-    margin-left: auto;
 }
 
-.dir-listing .details span {
+.dir-listing .details2 span {
     overflow-wrap: break-word;
     max-width: 100%;
 }

@@ -18,11 +18,13 @@
                 {%- endif -%}
                 <span class="underlined">{{ item.name }}{% if item.item_type.is_directory() %}/{% endif %}</span>
             </a>
-            <div class="details">
-                {% if !item.item_type.is_directory() %}<span class="size">{{ item.file_size|filesizeformat }}</span>{% endif %}
-                {{ item.modified|time_format(display_timezone)|safe }}
+            <div class="details1">
+                <div class="details2">
+                    {% if !item.item_type.is_directory() %}<span class="size">{{ item.file_size|filesizeformat }}</span>{% endif %}
+                    {{ item.modified|time_format(display_timezone)|safe }}
+                </div>
+                <a class="download" href="{% call url(item) %}{% if item.item_type.is_directory() %}?mode=zip{% endif %}">download</a>
             </div>
-            <a class="download" href="{% call url(item) %}{% if item.item_type.is_directory() %}?mode=zip{% endif %}">download</a>
         </li>
         {% endfor %}
     </ul>
