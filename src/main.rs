@@ -17,6 +17,8 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let config = Config::get()?;
+    let host = config.bind_address.clone();
+    let port = config.bind_port;
     let app_data = Arc::new(AppData::with_config(config)?);
 
     HttpServer::new(move || {
@@ -27,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
             .wrap(middleware::DefaultHeaders::new().add(header::ContentType::html()))
             .configure(configure_pages)
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind((host, port))?
     .run()
     .await?;
 

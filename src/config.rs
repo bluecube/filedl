@@ -8,6 +8,14 @@ use figment::{
 };
 use serde::Deserialize;
 
+fn default_bind_address() -> String {
+    "localhost".into()
+}
+
+fn default_bind_port() -> u16 {
+    8080
+}
+
 fn default_download_url() -> String {
     "/download".into()
 }
@@ -22,6 +30,11 @@ fn default_thumbnail_cache_size() -> usize {
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
+    #[serde(default = "default_bind_address")]
+    pub bind_address: String,
+    #[serde(default = "default_bind_port")]
+    pub bind_port: u16,
+
     /// Directory where owned objects are stored
     pub data_path: PathBuf,
 
