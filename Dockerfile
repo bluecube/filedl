@@ -14,4 +14,12 @@ RUN \
 
 FROM scratch
 COPY --from=builder /app/target/release/filedl /bin/filedl
-CMD ["/bin/filedl"]
+ENTRYPOINT ["/bin/filedl"]
+
+ENV FILEDL_DATA_PATH=/var/data
+ENV FILEDL_LINKED_OBJECTS_ROOT=/var/linked
+ENV FILEDL_BIND_PORT=8080
+ENV FILEDL_BIND_ADDRESS=0.0.0.0
+ENV RUST_LOG=debug
+VOLUME ["$FILEDL_DATA_PATH", "$FILEDL_LINKED_OBJECTS_ROOT"]
+EXPOSE $FILEDL_BIND_PORT
