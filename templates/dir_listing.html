@@ -5,19 +5,19 @@
     {% if !app_name.is_empty() %}<div class="app_name">{{ app_name }}</div>{% endif %}
     <h1 class="breadcrumbs"><a class="home" href="{{ download_base_url }}">home</a>{% for piece in directory_breadcrumbs %}/<a href="{{ download_base_url }}/{{ piece.link_url }}">{{ piece.name }}</a>{% endfor %}</h1>
 </nav>
+
 <section id="content">
-    {% if items.is_empty() %}
+{%- if items.is_empty() %}
     <div class="empty-dir-listing">No data</div>
-    {% else %}
+{%- else %}
     <ul class="dir-listing">
-        {% for item in items %}
+        {%- for item in items %}
         <li class="{{ item.item_type }}">
             <a class="main-link" href="{% call url(item) %}">
                 {%- if item.item_type.is_thumbnailable() -%}
                     <img class="thumbnail" src="{% call thumb_url(item, 64) %}" srcset="{% for size in [64, 128, 256] %}{% call thumb_url(item, size) %} {{ size }}w, {% endfor %}" sizes="4em" loading="lazy" />
                 {%- endif -%}
-                <span class="underlined">{{ item.name }}{% if item.item_type.is_directory() %}/{% endif %}</span>
-            </a>
+                <span class="underlined">{{ item.name }}{% if item.item_type.is_directory() %}/{% endif %}</span></a>
             <div class="details1">
                 <div class="details2">
                     {% if !item.item_type.is_directory() %}<span class="size">{{ item.file_size|filesizeformat }}</span>{% endif %}
@@ -26,10 +26,11 @@
                 <a class="download" href="{% call url(item) %}{% if item.item_type.is_directory() %}?mode=zip{% endif %}">download</a>
             </div>
         </li>
-        {% endfor %}
+        {%- endfor %}
     </ul>
-    {% endif %}
+{% endif -%}
 </section>
+
 <section id="gallery">
     <a href="#" class="close">close</a>
     <div class="placeholder"></div>
