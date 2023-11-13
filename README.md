@@ -8,7 +8,7 @@ Currently WIP.
 - [x] Directory listing
 - [ ] Directory download as ZIP
 - [x] Image thumbnails
-- [ ] Display images as a gallery
+- [x] Display images as a gallery
 - [ ] Download expiry
 - [ ] Unlisted downloads
   - Does not show up in directory listing, needs specific "key" in query string to download.
