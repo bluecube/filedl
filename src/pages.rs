@@ -3,7 +3,7 @@ use crate::breadcrumbs::BreadcrumbsIterator;
 use actix_files::NamedFile;
 use actix_web::{
     get,
-    http::{header, StatusCode},
+    http::{header, header::DispositionType, StatusCode},
     routes, web,
     web::Redirect,
     Either, HttpResponse, Responder, ResponseError,
@@ -25,6 +25,7 @@ enum DownloadMode {
     #[default]
     Default,
     Internal,
+    Download,
     Thumb64,
     Thumb128,
     Thumb256,
@@ -59,6 +60,8 @@ enum UserError {
     NotFound,
     #[error("Internal Server Error")]
     InternalError,
+    #[error("Not implemented")]
+    NotImplemented,
 }
 
 impl ResponseError for UserError {
@@ -66,6 +69,7 @@ impl ResponseError for UserError {
         match self {
             UserError::NotFound => StatusCode::NOT_FOUND,
             UserError::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
+            UserError::NotImplemented => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
@@ -77,7 +81,10 @@ impl From<ObjectResolutionError> for UserError {
             ObjectResolutionError::Unlisted => Self::NotFound,
             ObjectResolutionError::IOError { source } => match source.kind() {
                 std::io::ErrorKind::NotFound => Self::NotFound,
-                _ => Self::InternalError,
+                _ => {
+                    log::error!("Converting to user error: {}", source);
+                    Self::InternalError
+                }
             },
         }
     }
@@ -178,6 +185,9 @@ async fn download_object(
 
         match resolved_object {
             ResolvedObject::File(f) => match query.mode {
+                DownloadMode::Default => file_download(&f, false).await.map(Either::Left),
+                DownloadMode::Internal => unreachable!("Was handled before"),
+                DownloadMode::Download => file_download(&f, true).await.map(Either::Left),
                 DownloadMode::Thumb64 => thumb_download(&app, f, 64, query.cache_hash.as_deref())
                     .await
                     .map(Either::Right),
@@ -187,11 +197,17 @@ async fn download_object(
                 DownloadMode::Thumb256 => thumb_download(&app, f, 256, query.cache_hash.as_deref())
                     .await
                     .map(Either::Right),
-                _ => file_download(&f).await.map(Either::Left),
             },
-            ResolvedObject::Directory(items) => dir_listing(&app, &object_path, items)
-                .await
-                .map(Either::Right),
+            ResolvedObject::Directory(items) => match query.mode {
+                DownloadMode::Default => dir_listing(&app, &object_path, items)
+                    .await
+                    .map(Either::Right),
+                DownloadMode::Internal => unreachable!("Was handled before"),
+                DownloadMode::Download => Err(UserError::NotImplemented),
+                _ => Ok(Either::Right(
+                    HttpResponse::BadRequest().body("Not a valid mode for directory."),
+                )),
+            },
         }
     }
 }
@@ -213,10 +229,18 @@ async fn static_content<Tmpl: Template + Default>(
         ))
 }
 
-async fn file_download(f: &Path) -> Result<NamedFile, UserError> {
-    NamedFile::open_async(f)
+async fn file_download(f: &Path, force_download: bool) -> Result<NamedFile, UserError> {
+    let mut nf = NamedFile::open_async(f)
         .await
-        .map_err(|_| UserError::InternalError)
+        .map_err(|_| UserError::InternalError)?;
+
+    if force_download {
+        let mut cd = nf.content_disposition().clone();
+        cd.disposition = DispositionType::Attachment;
+        nf = nf.set_content_disposition(cd);
+    }
+
+    Ok(nf)
 }
 
 async fn thumb_download(
