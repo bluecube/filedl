@@ -100,7 +100,11 @@ struct DirListingTemplate<'a> {
 }
 
 impl<'a> DirListingTemplate<'a> {
-    fn new(app: &'a AppData, object_path: &'a str, mut items: Vec<DirListingItem>) -> DirListingTemplate<'a> {
+    fn new(
+        app: &'a AppData,
+        object_path: &'a str,
+        mut items: Vec<DirListingItem>,
+    ) -> DirListingTemplate<'a> {
         let mut collator = feruca::Collator::default();
         items.sort_unstable_by(|a, b| collator.collate(a.name.as_bytes(), b.name.as_bytes()));
         DirListingTemplate {
@@ -144,8 +148,8 @@ async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
 async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse, UserError> {
     Ok(HttpResponse::Ok().body(
         DirListingTemplate::new(&app, "", app.list_objects().await?)
-        .render()
-        .map_err(|_| UserError::InternalError)?,
+            .render()
+            .map_err(|_| UserError::InternalError)?,
     ))
 }
 
@@ -244,8 +248,8 @@ async fn dir_listing(
 ) -> Result<HttpResponse, UserError> {
     Ok(HttpResponse::Ok().insert_header(cache_control(None)).body(
         DirListingTemplate::new(app, object_path, items)
-        .render()
-        .map_err(|_| UserError::InternalError)?,
+            .render()
+            .map_err(|_| UserError::InternalError)?,
     ))
 }
 
