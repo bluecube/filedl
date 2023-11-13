@@ -927,6 +927,7 @@ dependencies = [
  "figment",
  "image",
  "kamadak-exif",
+ "log",
  "lru",
  "mime",
  "proptest",

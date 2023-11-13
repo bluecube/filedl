@@ -21,6 +21,8 @@ async fn main() -> anyhow::Result<()> {
     let port = config.bind_port;
     let app_data = Arc::new(AppData::with_config(config)?);
 
+    log::info!("Will bind to {}:{}", host, port);
+
     HttpServer::new(move || {
         let app_data = Arc::clone(&app_data);
         App::new()
