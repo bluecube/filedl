@@ -292,12 +292,14 @@ impl AppData {
         for (key, obj) in self.objects.read().await.iter() {
             let path = self.get_object_path(key, obj);
             let metadata = fs::metadata(&path).await?;
-            result.push(DirListingItem::with_metadata(
-                &path,
-                Arc::clone(key),
-                format!("{}/{}", self.config.download_url, key),
-                &metadata,
-            ));
+            if obj.unlisted_key.is_none() {
+                result.push(DirListingItem::with_metadata(
+                    &path,
+                    Arc::clone(key),
+                    format!("{}/{}", self.config.download_url, key),
+                    &metadata,
+                ));
+            }
         }
 
         Ok(result)

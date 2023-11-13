@@ -10,7 +10,7 @@ Currently WIP.
 - [x] Image thumbnails
 - [x] Display images as a gallery
 - [ ] Download expiry
-- [ ] Unlisted downloads
+- [x] Unlisted downloads
   - Does not show up in directory listing, needs specific "key" in query string to download.
 - [ ] Owned vs linked downloads
   - Owned objects are stored in FileDl's data directory, deleted when download expires

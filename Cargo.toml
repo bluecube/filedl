@@ -2,7 +2,7 @@
 name = "filedl"
 description = "A simple web app for public file downloads."
 repository = "https://github.com/bluecube/filedl"
-version = "0.1.0"
+version = "0.6.0-beta1"
 edition = "2021"
 
 [profile.release]
