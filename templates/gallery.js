@@ -95,12 +95,10 @@ function setCurrentNoHistory(index) {
 
 function setCurrentBasedOnHash() {
     if (window.location.hash) {
-        console.log("Hash = " + window.location.hash);
         let hash = window.location.hash.substring(1);
         let decoded = decodeURIComponent(hash);
         let index = images.findIndex((im) => im[0] == decoded);
         if (index != -1) {
-            console.log("Going to index " + index);
             setCurrentNoHistory(index);
         }
     } else {
@@ -120,10 +118,8 @@ function closeOnclick(event) {
 
 function popstate(event) {
     if (event.state === null) {
-        console.log("Popstate without state");
         setCurrentBasedOnHash();
     } else {
-        console.log("Popstate with state " + event.state);
         setCurrentNoHistory(event.state);
     }
 }
