@@ -149,7 +149,7 @@ impl ResolvedObject {
     pub async fn with_directory(
         path: &Path,
         directory_base_url: &str,
-    ) -> Result<Self, ObjectResolutionError> {
+    ) -> Result<Self, FiledlError> {
         let mut result = Vec::new();
 
         let mut dir = fs::read_dir(path).await?;
@@ -164,7 +164,7 @@ impl ResolvedObject {
 }
 
 #[derive(Debug, Error)]
-pub enum ObjectResolutionError {
+pub enum FiledlError {
     #[error("Object not found")]
     ObjectNotFound,
     #[error("Object exists, but is unlisted")]
@@ -243,7 +243,7 @@ impl AppData {
         &self,
         path: &str,
         key: Option<&str>,
-    ) -> Result<ResolvedObject, ObjectResolutionError> {
+    ) -> Result<ResolvedObject, FiledlError> {
         let (object_id, subobject_path) = match path.split_once('/') {
             Some((object_id, subobject_path)) => (object_id, Some(subobject_path)),
             None => (path, None),
@@ -256,7 +256,7 @@ impl AppData {
             .is_some_and(|expected_key| key != Some(expected_key))
         {
             // Someone is snooping around for unlisted objects
-            return Err(ObjectResolutionError::Unlisted);
+            return Err(FiledlError::Unlisted);
         }
 
         // TODO: Verify that subobject path is not weird
@@ -277,16 +277,16 @@ impl AppData {
         }
     }
 
-    async fn object_from_id(&self, id: &str) -> Result<Object, ObjectResolutionError> {
+    async fn object_from_id(&self, id: &str) -> Result<Object, FiledlError> {
         self.objects
             .read()
             .await
             .get(id)
-            .ok_or(ObjectResolutionError::ObjectNotFound)
+            .ok_or(FiledlError::ObjectNotFound)
             .cloned()
     }
 
-    pub async fn list_objects(&self) -> Result<Vec<DirListingItem>, ObjectResolutionError> {
+    pub async fn list_objects(&self) -> Result<Vec<DirListingItem>, FiledlError> {
         let mut result = Vec::new();
 
         for (key, obj) in self.objects.read().await.iter() {

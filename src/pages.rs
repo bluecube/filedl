@@ -1,4 +1,4 @@
-use crate::app_data::{AppData, DirListingItem, ObjectResolutionError, ResolvedObject};
+use crate::app_data::{AppData, DirListingItem, FiledlError, ResolvedObject};
 use crate::breadcrumbs::BreadcrumbsIterator;
 use actix_files::NamedFile;
 use actix_web::{
@@ -74,12 +74,12 @@ impl ResponseError for UserError {
     }
 }
 
-impl From<ObjectResolutionError> for UserError {
-    fn from(value: ObjectResolutionError) -> Self {
+impl From<FiledlError> for UserError {
+    fn from(value: FiledlError) -> Self {
         match value {
-            ObjectResolutionError::ObjectNotFound => Self::NotFound,
-            ObjectResolutionError::Unlisted => Self::NotFound,
-            ObjectResolutionError::IOError { source } => match source.kind() {
+            FiledlError::ObjectNotFound => Self::NotFound,
+            FiledlError::Unlisted => Self::NotFound,
+            FiledlError::IOError { source } => match source.kind() {
                 std::io::ErrorKind::NotFound => Self::NotFound,
                 _ => {
                     log::error!("Converting to user error: {}", source);
