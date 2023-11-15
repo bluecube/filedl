@@ -17,9 +17,7 @@ function galleryInit() {
         let download = entry.querySelector("a.download")
         let thumbnail = entry.querySelector("img.thumbnail")
         images.push([mainLink.innerText, download.href, thumbnail.src]);
-        mainLink.addEventListener('click', function(event) {
-            linkOnclick(event, index);
-        });
+        mainLink.href = hashForIndex(index);
     });
 
     galleryBg = document.getElementById("gallery");
@@ -108,11 +106,6 @@ function setCurrentBasedOnHash() {
     }
 }
 
-function linkOnclick(event, index) {
-    event.preventDefault();
-    setCurrent(index);
-}
-
 function bgOnclick(event) {
     console.log(event.target);
     console.log(event.currentTarget);
@@ -127,11 +120,7 @@ function closeOnclick(event) {
 }
 
 function popstate(event) {
-    if (event.state === null) {
-        setCurrentBasedOnHash();
-    } else {
-        setCurrentNoHistory(event.state);
-    }
+    setCurrentBasedOnHash();
 }
 
 function keydown(event) {
