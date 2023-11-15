@@ -231,6 +231,10 @@ time .separator {
     transition: opacity 0.5s ease;
 }
 
+#gallery .loading img {
+    min-height: 50vmin;
+}
+
 #gallery .info {
     min-height: 2em;
     color: #ccc;
