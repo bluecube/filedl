@@ -5,6 +5,7 @@ let galleryBg = null;
 let galleryImgWrap = null;
 let galleryImg = null;
 let galleryPrefetch = null;
+let progressBar = null;
 let closeButton = null;
 let prevButton = null;
 let nextButton = null;
@@ -23,6 +24,7 @@ function galleryInit() {
     galleryBg = document.getElementById("gallery");
     galleryImgWrap = galleryBg.querySelector(".img-wrap");
     galleryImg = galleryImgWrap.querySelector("img");
+    progressBar = galleryImgWrap.querySelector("progress");
     closeButton = galleryBg.querySelector("a.close");
     prevButton = galleryBg.querySelector("a.prev");
     nextButton = galleryBg.querySelector("a.next");
@@ -31,6 +33,7 @@ function galleryInit() {
 
     addEventListener("popstate", popstate);
     galleryImg.onload = imgOnload;
+    galleryImg.onprogress = imgOnprogress;
     galleryBg.addEventListener("click", bgOnclick);
     galleryImgWrap.addEventListener("click", bgOnclick);
     closeButton.addEventListener("click", closeOnclick);
@@ -74,6 +77,8 @@ function setCurrentNoHistory(index) {
 
     currentIndex = index;
     galleryImg.src = images[index][1];
+    progressBar.removeAttribute('value');
+    progressBar.innerText = "";
     galleryImgWrap.classList.add("loading");
     descriptionBlock.innerText = (index + 1) + "/" + images.length + " " + images[index][0];
     downloadLink.href = images[index][1];
@@ -143,6 +148,18 @@ function imgOnload() {
     if (currentIndex < (images.length - 1)) {
         galleryPrefetch = new Image();
         galleryPrefetch.src = images[currentIndex + 1][1];
+    }
+}
+
+function imgOnprogress(event) {
+    console.log("progress " + event.loaded + " / " + event.total);
+    if (event.lengthComputable) {
+        progressBar.max = event.total;
+        progressBar.value = event.loaded;
+        progressBar.innerText = int(100 * event.loaded / event.total) + " %";
+    } else {
+        progressBar.removeAttribute('value');
+        progressBar.innerText = "";
     }
 }
 

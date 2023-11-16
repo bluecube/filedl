@@ -204,35 +204,55 @@ time .separator {
     display: block;
 
     opacity: 1;
-    transition: opacity 0.5s ease;
+    transition: opacity 0.5s ease-in;
 }
 
-#gallery .img-wrap.loading img {
+#gallery .loading img {
     opacity: 0;
-    transition: opacity 0.5s ease;
+    transition: opacity 0.5s ease-out;
 }
 
-#gallery .img-wrap:before {
-    {% call icon %}
-    content: "image";
-
+#gallery progress {
     opacity: 0;
-    transition: opacity 0.5s ease;
+    transition: opacity 0.5s ease-out;
 
-    font-size: 50vmin;
     position: absolute;
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
+
+    width: 8em;
+    height: .8em;
+    border: 0.01em solid #ccc;
+    background: transparent;
 }
 
-#gallery .img-wrap.loading:before {
+#gallery progress::-webkit-progress-bar, #gallery progress::-moz-progress-bar {
+    background-color: #ccc;
+}
+
+#gallery progress:indeterminate::-webkit-progress-bar, #gallery progress:indeterminate::-moz-progress-bar {
+    width: 30%;
+}
+
+#gallery progress:indeterminate::-webkit-progress-bar, #gallery progress:indeterminate::-moz-progress-bar {
+    width: 30%;
+    animation: 1.5s infinite alternate progress-bounce;
+    animation-timing-function: ease-in-out;
+}
+
+@keyframes progress-bounce {
+    from {
+        margin-left: 0;
+    }
+    to {
+        margin-left: 70%;
+    }
+}
+
+#gallery .loading progress {
     opacity: 1;
-    transition: opacity 0.5s ease;
-}
-
-#gallery .loading img {
-    min-height: 50vmin;
+    transition: opacity 0.5s ease-in;
 }
 
 #gallery .info {
