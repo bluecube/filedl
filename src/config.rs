@@ -20,6 +20,10 @@ fn default_download_url() -> String {
     "/download".into()
 }
 
+fn default_app_name() -> String {
+    "Filedl".into()
+}
+
 fn default_timezone() -> Tz {
     UTC
 }
@@ -44,7 +48,7 @@ pub struct Config {
     #[serde(default = "default_download_url")]
     pub download_url: String,
 
-    #[serde(default)]
+    #[serde(default = "default_app_name")]
     pub app_name: String,
 
     #[serde(default = "default_timezone")]

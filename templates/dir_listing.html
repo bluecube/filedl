@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ directory_path }}{% endblock %}
+{% block title %}{% if !directory_path.is_empty() %}{{ directory_path }} - {% endif %}{{ app_name }}{% endblock %}
 {% block content %}
 <nav>
     {% if !app_name.is_empty() %}<div class="app_name">{{ app_name }}</div>{% endif %}
