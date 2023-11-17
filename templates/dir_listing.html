@@ -3,7 +3,8 @@
 {% block content %}
 <nav>
     {% if !app_name.is_empty() %}<div class="app_name">{{ app_name }}</div>{% endif %}
-    <h1 class="breadcrumbs"><a class="home" href="{{ download_base_url }}">home</a>{% for piece in directory_breadcrumbs %}/<a href="{{ download_base_url }}/{{ piece.link_url }}">{{ piece.name }}</a>{% endfor %}</h1>
+    <h1 class="breadcrumbs"><a class="home" href="{{ download_base_url }}">home</a>{% for piece in directory_breadcrumbs %}/<a href="{{ download_base_url|urlencode }}/{{ piece.link_url|urlencode }}">{{ piece.name }}</a>{% endfor %}</h1>
+    {% if !directory_path.is_empty() %}<a class="download" href="{{ download_base_url|urlencode }}/{{ directory_path|urlencode }}?mode=download">download</a>{% endif %}
 </nav>
 
 <section id="content">
@@ -44,5 +45,5 @@
     <!--<div class="thumbnails"></div>-->
 </section>
 {% endblock %}
-{% macro url(item) %}{{ download_base_url }}/{% if !directory_path.is_empty() %}{{ directory_path }}/{% endif %}{{ item.name }}{% endmacro %}
+{% macro url(item) %}{{ download_base_url|urlencode }}/{% if !directory_path.is_empty() %}{{ directory_path|urlencode }}/{% endif %}{{ item.name|urlencode }}{% endmacro %}
 {% macro thumb_url(item, size) %}{% call url(item) %}?mode=thumb{{ size }}{% match item.source_hash %}{% when Some with (h) %}&cache_hash={{ h }}{% when None %}{% endmatch %}{% endmacro %}
