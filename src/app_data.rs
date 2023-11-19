@@ -106,7 +106,6 @@ fn get_source_hash(path: &Path, metadata: &Metadata) -> Option<String> {
 #[derive(Debug)]
 pub struct DirListingItem {
     pub name: Arc<str>,
-    pub link: String,
     pub item_type: ItemType,
     pub file_size: u64,
     pub modified: Option<DateTime<Utc>>,
@@ -118,25 +117,21 @@ impl DirListingItem {
     /// If the filename contains non-unicode characters, returns Ok(None).
     async fn with_dir_entry(
         entry: fs::DirEntry,
-        directory_base_url: &str,
     ) -> Result<Option<Self>, std::io::Error> {
         let Ok(name) = entry.file_name().into_string() else {
             return Ok(None);
         };
-        let link = format!("{directory_base_url}/{name}");
         Ok(Some(Self::with_metadata(
             &entry.path(),
             name.into(),
-            link,
             &entry.metadata().await?,
         )))
     }
 
-    fn with_metadata(path: &Path, name: Arc<str>, link: String, metadata: &Metadata) -> Self {
+    fn with_metadata(path: &Path, name: Arc<str>, metadata: &Metadata) -> Self {
         let item_type = ItemType::new(path, metadata);
         DirListingItem {
             name,
-            link,
             item_type,
             file_size: metadata.len(),
             modified: metadata.modified().ok().map(Into::into),
@@ -148,13 +143,12 @@ impl DirListingItem {
 impl ResolvedObject {
     pub async fn with_directory(
         path: &Path,
-        directory_base_url: &str,
     ) -> Result<Self, FiledlError> {
         let mut result = Vec::new();
 
         let mut dir = fs::read_dir(path).await?;
         while let Some(entry) = dir.next_entry().await? {
-            if let Some(item) = DirListingItem::with_dir_entry(entry, directory_base_url).await? {
+            if let Some(item) = DirListingItem::with_dir_entry(entry).await? {
                 result.push(item);
             }
         }
@@ -270,8 +264,7 @@ impl AppData {
         let metadata = fs::metadata(&object_fs_path).await?;
 
         if metadata.is_dir() {
-            let base_url = format!("{}/{}", self.config.download_url, path);
-            ResolvedObject::with_directory(&object_fs_path, &base_url).await
+            ResolvedObject::with_directory(&object_fs_path).await
         } else {
             Ok(ResolvedObject::File(object_fs_path))
         }
@@ -296,7 +289,6 @@ impl AppData {
                 result.push(DirListingItem::with_metadata(
                     &path,
                     Arc::clone(key),
-                    format!("{}/{}", self.config.download_url, key),
                     &metadata,
                 ));
             }
