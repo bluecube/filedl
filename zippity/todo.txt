@@ -1,0 +1,8 @@
+- Zip64 support
+- File metadata
+- Seeking in the reader
+- Support files, instead of just slices
+- CRC cache
+- Recalculating CRC after a seek
+
+- Integration in filedl

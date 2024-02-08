@@ -1,0 +1,62 @@
+00000000  50 4b 03 04        LocalFileHeader signature
+		  2d 00              version to extract
+		  00 00              flags
+		  00 00              compression
+		  56 a8              last mod time
+		  2d 58              last mod date
+		  93 06 d7 32        crc32
+00000012  ff ff ff ff        compressed size
+          ff ff ff ff        uncompressed size
+		  01 00              file name len
+		  14 00              extra field len
+		  2d                 filename '-'
+00000019  01 00              Extra field tag -- Zip64 extended information
+		  10 00              size of extra field chunk (16B)
+		  01 00 00 00 00 00 00 00  uncompressed size
+		  01 00 00 00 00 00 00 00  compressed size
+		  0a                 File content
+
+		  50 4b 01 02        CD File header signature
+		  1e 03              version made by
+		  2d 00              version to extract
+		  00 00              flags
+		  00 00              compression
+00000040  56 a8              last mod time
+          2d 58              last mod date
+		  93 06 d7 32        crc32
+		  01 00 00 00        compressed size
+		  01 00 00 00        uncompressed size
+00000050  01 00              filename len
+          00 00              extra field len
+		  00 00              file comment len
+		  00 00              disk number start
+		  01 00              internal attributes
+		  00 00 80 11        external attributes
+		  00 00 00 00        local header offset
+		  2d                 filename '-'
+		
+		  50 4b 06 06        Zip64 EOCD signature
+		  2c 00 00 00 00 00 00 00  size of eocd ( = 44 + 12)
+		  1e 03              version made by
+		  2d 00              version to extract
+		  00 00 00 00        this disk number
+		  00 00 00 00        start of CD disk number
+		  01 00 00 00 00 00 00 00  This disk CD entry count
+		  01 00 00 00 00 00 00 00  Total CD entry count
+		  2f 00 00 00 00 00 00 00  CD size
+		  34 00 00 00 00 00 00 00  CD offset
+
+		  50 4b 06 07        Zip64 EOCD locator signature
+		  00 00 00 00        number of disk with start of eocd
+		  63 00 00 00 00 00 00 00  relative offset of eocd record
+		  01 00 00 00        total number of disks
+
+		  50
+000000b0  4b 05 06           EOCD signature
+          00 00              Number of this disk
+		  00 00              number of disk with start of eocd
+		  01 00              number of entries in cd on this disk
+		  01 00              total number of entries
+		  2f 00 00 00        size of CD
+		  34 00 00 00        offset of start of CD
+		  00 00              comment length
