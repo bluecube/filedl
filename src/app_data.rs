@@ -174,6 +174,7 @@ pub enum FiledlError {
 pub struct AppData {
     config: Config,
     objects: RwLock<Storage<Object>>,
+    // The RwLock not only protects the Storage object, but also the data stored on the filesystem
     thumbnails: CachedThumbnails,
     static_content_hash: String,
 }
@@ -238,6 +239,10 @@ impl AppData {
         path: &str,
         key: Option<&str>,
     ) -> Result<ResolvedObject, FiledlError> {
+        // TODO: This function should return a guard that holds the read lock,
+        // This way the file corresponding to the object might get deleted after
+        // we release the read lock and clone.
+
         let (object_id, subobject_path) = match path.split_once('/') {
             Some((object_id, subobject_path)) => (object_id, Some(subobject_path)),
             None => (path, None),
@@ -270,13 +275,12 @@ impl AppData {
         }
     }
 
-    async fn object_from_id(&self, id: &str) -> Result<Object, FiledlError> {
-        self.objects
-            .read()
-            .await
-            .get(id)
-            .ok_or(FiledlError::ObjectNotFound)
-            .cloned()
+    async fn object_from_id<'a>(
+        &'a self,
+        id: &str,
+    ) -> Result<tokio::sync::RwLockReadGuard<'a, Object>, FiledlError> {
+        tokio::sync::RwLockReadGuard::try_map(self.objects.read().await, |objects| objects.get(id))
+            .map_err(|_| FiledlError::ObjectNotFound)
     }
 
     pub async fn list_objects(&self) -> Result<Vec<DirListingItem>, FiledlError> {
