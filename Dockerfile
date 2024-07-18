@@ -1,4 +1,5 @@
 FROM rust:alpine AS builder
+ARG RUSTFLAGS
 
 RUN apk add musl-dev
 
