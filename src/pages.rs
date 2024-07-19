@@ -112,14 +112,6 @@ impl<'a> DirListingTemplate<'a> {
     }
 }
 
-#[derive(Template, Default)]
-#[template(path = "style.css", escape = "none")]
-struct StylesheetTemplate {}
-
-#[derive(Template, Default)]
-#[template(path = "gallery.js", escape = "none")]
-struct GalleryJsTemplate {}
-
 #[routes]
 #[get("/index.html")]
 #[get("/")]
@@ -153,12 +145,8 @@ async fn download_object(
 
     if query.mode == DownloadMode::Internal {
         match object_path.as_str() {
-            "style.css" => static_content::<StylesheetTemplate>(query.cache_hash.as_deref())
-                .await
-                .map(Either::Right),
-            "gallery.js" => static_content::<GalleryJsTemplate>(query.cache_hash.as_deref())
-                .await
-                .map(Either::Right),
+            "style.css" => Ok(Either::Right(style_css(query.cache_hash.as_deref()))),
+            "gallery.js" => Ok(Either::Right(gallery_js(query.cache_hash.as_deref()))),
             &_ => Err(FiledlError::ObjectNotFound),
         }
     } else {
@@ -206,17 +194,18 @@ async fn download_object(
     }
 }
 
-async fn static_content<Tmpl: Template + Default>(
-    cache_hash: Option<&str>,
-) -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok()
-        .insert_header(header::ContentType(
-            Tmpl::MIME_TYPE
-                .parse()
-                .expect("Askama's MIME string should be valid"),
-        ))
+fn style_css(cache_hash: Option<&str>) -> HttpResponse {
+    HttpResponse::Ok()
+        .insert_header(header::ContentType(mime::TEXT_CSS_UTF_8))
         .insert_header(cache_control(cache_hash))
-        .body(Tmpl::default().render()?))
+        .body(include_bytes!(concat!(env!("OUT_DIR"), "/assets/style.css")).as_slice())
+}
+
+fn gallery_js(cache_hash: Option<&str>) -> HttpResponse {
+    HttpResponse::Ok()
+        .insert_header(header::ContentType(mime::TEXT_JAVASCRIPT))
+        .insert_header(cache_control(cache_hash))
+        .body(include_bytes!(concat!(env!("OUT_DIR"), "/assets/gallery.js")).as_slice())
 }
 
 async fn file_download<'a>(
