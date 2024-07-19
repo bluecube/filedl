@@ -44,10 +44,28 @@ impl CacheKey {
     }
 }
 
+#[derive(Copy, Clone, Debug, Default)]
+struct HitRate {
+    pub rate: f32,
+}
+
+impl HitRate {
+    const SMOOTHING: f32 = 0.995;
+
+    fn count(&mut self, success: bool) {
+        self.rate *= Self::SMOOTHING;
+        if success {
+            self.rate += 1f32 - Self::SMOOTHING;
+        }
+    }
+}
+
 struct Locked {
     cache: LruCache<CacheKey, Bytes>,
     used_size: usize,
-    hit_rate: f32,
+
+    hit_rate: HitRate,
+    wasted_creation_rate: HitRate,
 }
 
 pub struct CachedThumbnails {
@@ -55,14 +73,13 @@ pub struct CachedThumbnails {
     max_size: usize,
 }
 
-const HIT_RATE_SMOOTHING: f32 = 0.995;
-
 #[derive(Clone, Debug, Serialize)]
 pub struct CacheStats {
     pub count: usize,
     pub used_size: usize,
     pub max_size: usize,
     pub hit_rate: f32,
+    pub wasted_creation_rate: f32,
 }
 
 impl CachedThumbnails {
@@ -71,7 +88,8 @@ impl CachedThumbnails {
             locked: Mutex::new(Locked {
                 cache: LruCache::unbounded(),
                 used_size: 0,
-                hit_rate: 0.5,
+                hit_rate: HitRate { rate: 0.5 },
+                wasted_creation_rate: HitRate { rate: 0.5 },
             }),
             max_size,
         }
@@ -84,11 +102,12 @@ impl CachedThumbnails {
         {
             let mut locked = self.locked.lock().await;
 
-            locked.hit_rate *= HIT_RATE_SMOOTHING;
             if let Some(thumbnail) = locked.cache.get(&key) {
                 let ret = Ok((Bytes::clone(thumbnail), hash));
-                locked.hit_rate += 1.0 - HIT_RATE_SMOOTHING;
+                locked.hit_rate.count(true);
                 return ret;
+            } else {
+                locked.hit_rate.count(false);
             }
         }
 
@@ -122,6 +141,9 @@ impl CachedThumbnails {
             // with the newer one.
             // In this case we need to subtract the size that gets overwritten.
             locked.used_size -= overwritten_thumbnail.len();
+            locked.wasted_creation_rate.count(true);
+        } else {
+            locked.wasted_creation_rate.count(false);
         }
         locked.used_size += thumbnail.len();
 
@@ -134,7 +156,8 @@ impl CachedThumbnails {
             count: locked.cache.len(),
             used_size: locked.used_size,
             max_size: self.max_size,
-            hit_rate: locked.hit_rate,
+            hit_rate: locked.hit_rate.rate,
+            wasted_creation_rate: locked.wasted_creation_rate.rate,
         }
     }
 }
