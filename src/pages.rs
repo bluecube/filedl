@@ -1,5 +1,9 @@
-use crate::app_data::{AppData, DirListingItem, FiledlError, ItemType, ResolvedObject};
 use crate::breadcrumbs::BreadcrumbsIterator;
+use crate::error::FiledlError;
+use crate::{
+    app_data::{AppData, DirListingItem, ItemType, ResolvedObject},
+    error::Result,
+};
 use actix_files::NamedFile;
 use actix_web::{
     get,
@@ -134,7 +138,7 @@ async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
 }
 
 #[get("/download")]
-async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse, FiledlError> {
+async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok()
         .body(DirListingTemplate::new(&app, "", app.list_objects().await?).render()?))
 }
@@ -144,7 +148,7 @@ async fn download_object(
     app: web::Data<Arc<AppData>>,
     path: web::Path<String>,
     query: web::Query<DownloadQuery>,
-) -> Result<Either<NamedFile, HttpResponse>, FiledlError> {
+) -> Result<Either<NamedFile, HttpResponse>> {
     let object_path = path.into_inner();
 
     if query.mode == DownloadMode::Internal {
@@ -204,7 +208,7 @@ async fn download_object(
 
 async fn static_content<Tmpl: Template + Default>(
     cache_hash: Option<&str>,
-) -> Result<HttpResponse, FiledlError> {
+) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok()
         .insert_header(header::ContentType(
             Tmpl::MIME_TYPE
@@ -218,7 +222,7 @@ async fn static_content<Tmpl: Template + Default>(
 async fn file_download<'a>(
     resolved_object: ResolvedObject<'a>,
     force_download: bool,
-) -> Result<NamedFile, FiledlError> {
+) -> Result<NamedFile> {
     let mut nf = NamedFile::open_async(resolved_object.path()).await?;
 
     if force_download {
@@ -234,7 +238,7 @@ async fn thumb_download<'a>(
     resolved_object: ResolvedObject<'a>,
     size: u32,
     cache_hash: Option<&str>,
-) -> Result<HttpResponse, FiledlError> {
+) -> Result<HttpResponse> {
     let (thumb, hash) = resolved_object.into_thumbnail((size, size)).await?;
     Ok(HttpResponse::Ok()
         .insert_header(header::ContentType(mime::IMAGE_JPEG))
@@ -253,14 +257,14 @@ async fn dir_listing(
     object_path: &str,
     query_key: Option<&str>,
     items: Vec<DirListingItem>,
-) -> Result<HttpResponse, FiledlError> {
+) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok()
         .insert_header(cache_control(None))
         .body(DirListingTemplate::new(app, object_path, items).render()?))
 }
 
 /// Not found handler used for default route
-async fn default_service() -> Result<HttpResponse, FiledlError> {
+async fn default_service() -> Result<HttpResponse> {
     Err(FiledlError::ObjectNotFound)
 }
 

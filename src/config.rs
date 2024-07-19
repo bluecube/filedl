@@ -8,6 +8,8 @@ use figment::{
 };
 use serde::Deserialize;
 
+use crate::error::Result;
+
 fn default_bind_address() -> String {
     "localhost".into()
 }
@@ -67,16 +69,13 @@ struct Cli {
 }
 
 impl Config {
-    pub fn get() -> anyhow::Result<Config> {
+    pub fn get() -> Result<Config> {
         let mut figment = Figment::new();
 
         let cli = Cli::parse();
         if let Some(config_path) = cli.config_path {
             figment = figment.merge(Toml::file(config_path));
         }
-        figment
-            .merge(Env::prefixed("FILEDL_"))
-            .extract()
-            .map_err(anyhow::Error::from)
+        Ok(figment.merge(Env::prefixed("FILEDL_")).extract()?)
     }
 }

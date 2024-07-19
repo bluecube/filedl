@@ -13,7 +13,6 @@ codegen-units = 1
 [dependencies]
 actix-files = "0.6.2"
 actix-web = "4.4.0"
-anyhow = "1.0.75"
 askama = "0.12.1"
 assert2 = "0.3.11"
 chrono = { version = "0.4.31", features = ["serde"] }

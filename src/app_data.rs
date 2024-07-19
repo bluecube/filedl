@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::error::{FiledlError, Result};
 use crate::storage::Storage;
 use crate::thumbnails::{is_thumbnailable, CacheStats, CachedThumbnails};
 use actix_web::web::Bytes;
@@ -13,7 +14,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
-use thiserror::Error;
 use tokio::sync::RwLockReadGuard;
 use tokio::{fs, sync::RwLock};
 
@@ -45,7 +45,7 @@ impl<'a> ResolvedObject<'a> {
         path: PathBuf,
         object: RwLockReadGuard<'a, Object>,
         thumbnails: &'a CachedThumbnails,
-    ) -> Result<Self, FiledlError> {
+    ) -> Result<Self> {
         let metadata = fs::metadata(&path).await?;
 
         Ok(ResolvedObject {
@@ -68,11 +68,11 @@ impl<'a> ResolvedObject<'a> {
         ItemType::new(&self.path, &self.metadata)
     }
 
-    pub async fn into_thumbnail(self, size: (u32, u32)) -> Result<(Bytes, String), FiledlError> {
+    pub async fn into_thumbnail(self, size: (u32, u32)) -> Result<(Bytes, String)> {
         self.thumbnails.get(self.path, &self.metadata, size).await
     }
 
-    pub async fn list(&self) -> Result<Vec<DirListingItem>, FiledlError> {
+    pub async fn list(&self) -> Result<Vec<DirListingItem>> {
         let mut result = Vec::new();
 
         let mut dir = fs::read_dir(&self.path).await?;
@@ -164,7 +164,7 @@ pub struct DirListingItem {
 impl DirListingItem {
     /// Create the dir listing item from directory entry.
     /// If the filename contains non-unicode characters, returns Ok(None).
-    async fn with_dir_entry(entry: fs::DirEntry) -> Result<Option<Self>, std::io::Error> {
+    async fn with_dir_entry(entry: fs::DirEntry) -> std::io::Result<Option<Self>> {
         let Ok(name) = entry.file_name().into_string() else {
             return Ok(None);
         };
@@ -187,36 +187,6 @@ impl DirListingItem {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum FiledlError {
-    #[error("Object not found")]
-    ObjectNotFound,
-    #[error("Object exists, but is unlisted")]
-    Unlisted,
-    #[error("Attempting to use unsupported download mode")]
-    BadDownloadMode,
-    #[error("Zip downloads are unimplemented")]
-    UnimplementedZipDownload,
-    #[error("Template error: {source}")]
-    TemplateError {
-        #[from]
-        #[source]
-        source: askama::Error,
-    },
-    #[error("Image error: {source}")]
-    ImageError {
-        #[from]
-        #[source]
-        source: image::error::ImageError,
-    },
-    #[error("IO error: {source}")]
-    IOError {
-        #[from]
-        #[source]
-        source: std::io::Error,
-    },
-}
-
 pub struct AppData {
     config: Config,
     objects: RwLock<Storage<Object>>,
@@ -226,7 +196,7 @@ pub struct AppData {
 }
 
 impl AppData {
-    pub fn with_config(config: Config) -> anyhow::Result<Self> {
+    pub fn with_config(config: Config) -> Result<Self> {
         let path = config.data_path.join("metadata.json");
         let objects = RwLock::new(Storage::new(path)?);
         let thumbnail_cache_size = config.thumbnail_cache_size;
@@ -276,7 +246,7 @@ impl AppData {
         &'a self,
         path: &str,
         key: Option<&str>,
-    ) -> Result<ResolvedObject<'a>, FiledlError> {
+    ) -> Result<ResolvedObject<'a>> {
         let (object_id, subobject_path) = match path.split_once('/') {
             Some((object_id, subobject_path)) => (object_id, Some(subobject_path)),
             None => (path, None),
@@ -304,15 +274,12 @@ impl AppData {
         Ok(result)
     }
 
-    async fn object_from_id<'a>(
-        &'a self,
-        id: &str,
-    ) -> Result<RwLockReadGuard<'a, Object>, FiledlError> {
+    async fn object_from_id<'a>(&'a self, id: &str) -> Result<RwLockReadGuard<'a, Object>> {
         RwLockReadGuard::try_map(self.objects.read().await, |objects| objects.get(id))
             .map_err(|_| FiledlError::ObjectNotFound)
     }
 
-    pub async fn list_objects(&self) -> Result<Vec<DirListingItem>, FiledlError> {
+    pub async fn list_objects(&self) -> Result<Vec<DirListingItem>> {
         let mut result = Vec::new();
 
         for (key, obj) in self.objects.read().await.iter() {

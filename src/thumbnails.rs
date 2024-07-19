@@ -1,3 +1,4 @@
+use crate::error::Result;
 use actix_web::web::Bytes;
 use image::{
     imageops, DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Pixel, Rgb, RgbImage,
@@ -11,8 +12,6 @@ use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tokio::{sync::Mutex, task::spawn_blocking};
-
-use crate::app_data::FiledlError;
 
 /// Describes a cached rendered thumbnail
 #[derive(Hash, Debug, PartialEq, Eq)]
@@ -104,7 +103,7 @@ impl CachedThumbnails {
         file: PathBuf,
         metadata: &Metadata,
         size: (u32, u32),
-    ) -> Result<(Bytes, String), FiledlError> {
+    ) -> Result<(Bytes, String)> {
         let mut key = CacheKey::new(file, metadata, size); // Must be mutable because of the
                                                            // spawn_blocking trick below
         let hash = key.hash_string();
@@ -183,7 +182,7 @@ impl CachedThumbnails {
     }
 }
 
-pub fn create_thumbnail(file: &Path, size: (u32, u32)) -> Result<Bytes, FiledlError> {
+pub fn create_thumbnail(file: &Path, size: (u32, u32)) -> Result<Bytes> {
     let img = open_image(file)?;
     let orientation = get_orientation(file)?;
 
@@ -222,7 +221,7 @@ pub fn is_thumbnailable(path: &Path) -> bool {
     format.can_read()
 }
 
-fn open_image(path: &Path) -> Result<DynamicImage, FiledlError> {
+fn open_image(path: &Path) -> Result<DynamicImage> {
     let mut reader = image::io::Reader::open(path)?;
     reader.no_limits();
     Ok(reader.decode()?)
@@ -274,7 +273,7 @@ fn crop_and_resize(
     RgbImage::from_vec(new_size.0, new_size.1, dst_image.into_vec()).unwrap()
 }
 
-fn get_orientation(path: &Path) -> Result<u32, FiledlError> {
+fn get_orientation(path: &Path) -> Result<u32> {
     let file = std::fs::File::open(path)?;
     let mut bufreader = std::io::BufReader::new(file);
     let exifreader = exif::Reader::new();

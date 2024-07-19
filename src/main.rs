@@ -1,6 +1,7 @@
 mod app_data;
 mod breadcrumbs;
 mod config;
+mod error;
 mod pages;
 mod storage;
 mod thumbnails;
@@ -10,10 +11,11 @@ use crate::pages::configure_pages;
 use actix_web::{http::header, middleware, web::Data, App, HttpServer};
 use app_data::AppData;
 use config::Config;
+use error::Result;
 use std::sync::Arc;
 
 #[actix_web::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<()> {
     env_logger::init();
 
     let config = Config::get()?;
