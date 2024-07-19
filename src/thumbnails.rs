@@ -4,12 +4,15 @@ use image::{
 };
 use lru::LruCache;
 use serde::Serialize;
+use std::fs::Metadata;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use tokio::{fs, sync::Mutex, task::spawn_blocking};
+use tokio::{sync::Mutex, task::spawn_blocking};
+
+use crate::app_data::FiledlError;
 
 /// Describes a cached rendered thumbnail
 #[derive(Hash, Debug, PartialEq, Eq)]
@@ -25,16 +28,15 @@ struct CacheKey {
 }
 
 impl CacheKey {
-    async fn new(path: PathBuf, size: (u32, u32)) -> anyhow::Result<CacheKey> {
-        let metadata = fs::metadata(&path).await?;
-        Ok(CacheKey {
+    fn new(path: PathBuf, metadata: &Metadata, size: (u32, u32)) -> Self {
+        CacheKey {
             path,
             size: metadata.len(),
             modtime: metadata.modified().ok(),
 
             width: size.0,
             height: size.1,
-        })
+        }
     }
 
     fn hash_string(&self) -> String {
@@ -60,6 +62,7 @@ impl HitRate {
     }
 }
 
+#[derive(Debug)]
 struct Locked {
     cache: LruCache<CacheKey, Bytes>,
     used_size: usize,
@@ -68,6 +71,7 @@ struct Locked {
     wasted_creation_rate: HitRate,
 }
 
+#[derive(Debug)]
 pub struct CachedThumbnails {
     locked: Mutex<Locked>,
     max_size: usize,
@@ -95,9 +99,14 @@ impl CachedThumbnails {
         }
     }
 
-    pub async fn get(&self, file: PathBuf, size: (u32, u32)) -> anyhow::Result<(Bytes, String)> {
-        let mut key = CacheKey::new(file, size).await?; // Must be mutable because of the
-                                                        // spawn_blocking trick below
+    pub async fn get(
+        &self,
+        file: PathBuf,
+        metadata: &Metadata,
+        size: (u32, u32),
+    ) -> Result<(Bytes, String), FiledlError> {
+        let mut key = CacheKey::new(file, metadata, size); // Must be mutable because of the
+                                                           // spawn_blocking trick below
         let hash = key.hash_string();
         {
             let mut locked = self.locked.lock().await;
@@ -113,12 +122,24 @@ impl CachedThumbnails {
 
         // Here we pass the path through the closure, so that the compiler understands
         // that it will live long enough.
-        let (thumbnail, path) = spawn_blocking(move || {
+        let join_result = spawn_blocking(move || {
             let path = key.path;
             let thumbnail = create_thumbnail(&path, size);
             (thumbnail, path)
         })
-        .await?;
+        .await;
+
+        let (thumbnail, path) = match join_result {
+            Ok(x) => x,
+            Err(e) => {
+                if let Ok(reason) = e.try_into_panic() {
+                    std::panic::resume_unwind(reason)
+                } else {
+                    unreachable!("We never cancel the join handle.")
+                }
+            }
+        };
+
         key.path = path;
         let thumbnail = thumbnail?;
 
@@ -162,7 +183,7 @@ impl CachedThumbnails {
     }
 }
 
-pub fn create_thumbnail(file: &Path, size: (u32, u32)) -> anyhow::Result<Bytes> {
+pub fn create_thumbnail(file: &Path, size: (u32, u32)) -> Result<Bytes, FiledlError> {
     let img = open_image(file)?;
     let orientation = get_orientation(file)?;
 
@@ -201,7 +222,7 @@ pub fn is_thumbnailable(path: &Path) -> bool {
     format.can_read()
 }
 
-fn open_image(path: &Path) -> anyhow::Result<DynamicImage> {
+fn open_image(path: &Path) -> Result<DynamicImage, FiledlError> {
     let mut reader = image::io::Reader::open(path)?;
     reader.no_limits();
     Ok(reader.decode()?)
@@ -253,7 +274,7 @@ fn crop_and_resize(
     RgbImage::from_vec(new_size.0, new_size.1, dst_image.into_vec()).unwrap()
 }
 
-fn get_orientation(path: &Path) -> anyhow::Result<u32> {
+fn get_orientation(path: &Path) -> Result<u32, FiledlError> {
     let file = std::fs::File::open(path)?;
     let mut bufreader = std::io::BufReader::new(file);
     let exifreader = exif::Reader::new();

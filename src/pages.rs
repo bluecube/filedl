@@ -1,4 +1,4 @@
-use crate::app_data::{AppData, DirListingItem, FiledlError, ResolvedObject};
+use crate::app_data::{AppData, DirListingItem, FiledlError, ItemType, ResolvedObject};
 use crate::breadcrumbs::BreadcrumbsIterator;
 use actix_files::NamedFile;
 use actix_web::{
@@ -11,9 +11,7 @@ use actix_web::{
 use askama::Template;
 use chrono_tz::Tz;
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use thiserror::Error;
 
 pub const PROJECT_NAME: &str = env!("CARGO_PKG_NAME");
 pub const PROJECT_REPO: &str = env!("CARGO_PKG_REPOSITORY");
@@ -53,39 +51,23 @@ fn cache_control(cache_hash: Option<&str>) -> (&'static str, &'static str) {
     )
 }
 
-/// User visible error
-#[derive(Error, Debug)]
-enum UserError {
-    #[error("Not Found")]
-    NotFound,
-    #[error("Internal Server Error")]
-    InternalError,
-    #[error("Not implemented")]
-    NotImplemented,
-}
-
-impl ResponseError for UserError {
+impl ResponseError for FiledlError {
     fn status_code(&self) -> actix_web::http::StatusCode {
         match self {
-            UserError::NotFound => StatusCode::NOT_FOUND,
-            UserError::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
-            UserError::NotImplemented => StatusCode::INTERNAL_SERVER_ERROR,
-        }
-    }
-}
-
-impl From<FiledlError> for UserError {
-    fn from(value: FiledlError) -> Self {
-        match value {
-            FiledlError::ObjectNotFound => Self::NotFound,
-            FiledlError::Unlisted => Self::NotFound,
+            FiledlError::ObjectNotFound => StatusCode::NOT_FOUND,
+            FiledlError::Unlisted => StatusCode::NOT_FOUND,
+            FiledlError::BadDownloadMode => StatusCode::NOT_FOUND,
             FiledlError::IOError { source } => match source.kind() {
-                std::io::ErrorKind::NotFound => Self::NotFound,
+                std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
                 _ => {
                     log::error!("Converting to user error: {}", source);
-                    Self::InternalError
+                    StatusCode::INTERNAL_SERVER_ERROR
                 }
             },
+            source => {
+                log::error!("Converting to user error: {}", source);
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 }
@@ -152,12 +134,9 @@ async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
 }
 
 #[get("/download")]
-async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse, UserError> {
-    Ok(HttpResponse::Ok().body(
-        DirListingTemplate::new(&app, "", app.list_objects().await?)
-            .render()
-            .map_err(|_| UserError::InternalError)?,
-    ))
+async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse, FiledlError> {
+    Ok(HttpResponse::Ok()
+        .body(DirListingTemplate::new(&app, "", app.list_objects().await?).render()?))
 }
 
 #[get("/download/{object:.*}")]
@@ -165,7 +144,7 @@ async fn download_object(
     app: web::Data<Arc<AppData>>,
     path: web::Path<String>,
     query: web::Query<DownloadQuery>,
-) -> Result<Either<NamedFile, HttpResponse>, UserError> {
+) -> Result<Either<NamedFile, HttpResponse>, FiledlError> {
     let object_path = path.into_inner();
 
     if query.mode == DownloadMode::Internal {
@@ -176,37 +155,48 @@ async fn download_object(
             "gallery.js" => static_content::<GalleryJsTemplate>(query.cache_hash.as_deref())
                 .await
                 .map(Either::Right),
-            &_ => Err(UserError::NotFound),
+            &_ => Err(FiledlError::ObjectNotFound),
         }
     } else {
         let resolved_object = app
             .resolve_object(object_path.as_str(), query.key.as_deref())
             .await?;
 
-        match resolved_object {
-            ResolvedObject::File(f) => match query.mode {
-                DownloadMode::Default => file_download(&f, false).await.map(Either::Left),
+        match resolved_object.item_type() {
+            ItemType::Directory => match query.mode {
+                DownloadMode::Default => {
+                    let items = resolved_object.list().await?;
+                    dir_listing(&app, &object_path, query.key.as_deref(), items)
+                        .await
+                        .map(Either::Right)
+                }
+                DownloadMode::Download => Err(FiledlError::UnimplementedZipDownload),
                 DownloadMode::Internal => unreachable!("Was handled before"),
-                DownloadMode::Download => file_download(&f, true).await.map(Either::Left),
-                DownloadMode::Thumb64 => thumb_download(&app, f, 64, query.cache_hash.as_deref())
-                    .await
-                    .map(Either::Right),
-                DownloadMode::Thumb128 => thumb_download(&app, f, 128, query.cache_hash.as_deref())
-                    .await
-                    .map(Either::Right),
-                DownloadMode::Thumb256 => thumb_download(&app, f, 256, query.cache_hash.as_deref())
-                    .await
-                    .map(Either::Right),
+                _ => Err(FiledlError::BadDownloadMode),
             },
-            ResolvedObject::Directory(items) => match query.mode {
-                DownloadMode::Default => dir_listing(&app, &object_path, items)
+            _ => match query.mode {
+                DownloadMode::Default => file_download(resolved_object, false)
                     .await
-                    .map(Either::Right),
+                    .map(Either::Left),
+                DownloadMode::Download => {
+                    file_download(resolved_object, true).await.map(Either::Left)
+                }
+                DownloadMode::Thumb64 => {
+                    thumb_download(resolved_object, 64, query.cache_hash.as_deref())
+                        .await
+                        .map(Either::Right)
+                }
+                DownloadMode::Thumb128 => {
+                    thumb_download(resolved_object, 128, query.cache_hash.as_deref())
+                        .await
+                        .map(Either::Right)
+                }
+                DownloadMode::Thumb256 => {
+                    thumb_download(resolved_object, 256, query.cache_hash.as_deref())
+                        .await
+                        .map(Either::Right)
+                }
                 DownloadMode::Internal => unreachable!("Was handled before"),
-                DownloadMode::Download => Err(UserError::NotImplemented),
-                _ => Ok(Either::Right(
-                    HttpResponse::BadRequest().body("Not a valid mode for directory."),
-                )),
             },
         }
     }
@@ -214,7 +204,7 @@ async fn download_object(
 
 async fn static_content<Tmpl: Template + Default>(
     cache_hash: Option<&str>,
-) -> Result<HttpResponse, UserError> {
+) -> Result<HttpResponse, FiledlError> {
     Ok(HttpResponse::Ok()
         .insert_header(header::ContentType(
             Tmpl::MIME_TYPE
@@ -222,17 +212,14 @@ async fn static_content<Tmpl: Template + Default>(
                 .expect("Askama's MIME string should be valid"),
         ))
         .insert_header(cache_control(cache_hash))
-        .body(
-            Tmpl::default()
-                .render()
-                .map_err(|_| UserError::InternalError)?,
-        ))
+        .body(Tmpl::default().render()?))
 }
 
-async fn file_download(f: &Path, force_download: bool) -> Result<NamedFile, UserError> {
-    let mut nf = NamedFile::open_async(f)
-        .await
-        .map_err(|_| UserError::InternalError)?;
+async fn file_download<'a>(
+    resolved_object: ResolvedObject<'a>,
+    force_download: bool,
+) -> Result<NamedFile, FiledlError> {
+    let mut nf = NamedFile::open_async(resolved_object.path()).await?;
 
     if force_download {
         let mut cd = nf.content_disposition().clone();
@@ -243,16 +230,12 @@ async fn file_download(f: &Path, force_download: bool) -> Result<NamedFile, User
     Ok(nf)
 }
 
-async fn thumb_download(
-    app: &AppData,
-    f: PathBuf,
+async fn thumb_download<'a>(
+    resolved_object: ResolvedObject<'a>,
     size: u32,
     cache_hash: Option<&str>,
-) -> Result<HttpResponse, UserError> {
-    let (thumb, hash) = app
-        .get_thumbnail(f, (size, size))
-        .await
-        .map_err(|_| UserError::InternalError)?;
+) -> Result<HttpResponse, FiledlError> {
+    let (thumb, hash) = resolved_object.into_thumbnail((size, size)).await?;
     Ok(HttpResponse::Ok()
         .insert_header(header::ContentType(mime::IMAGE_JPEG))
         .insert_header(header::ETag(header::EntityTag::new_strong(hash)))
@@ -268,18 +251,17 @@ async fn thumb_download(
 async fn dir_listing(
     app: &AppData,
     object_path: &str,
+    query_key: Option<&str>,
     items: Vec<DirListingItem>,
-) -> Result<HttpResponse, UserError> {
-    Ok(HttpResponse::Ok().insert_header(cache_control(None)).body(
-        DirListingTemplate::new(app, object_path, items)
-            .render()
-            .map_err(|_| UserError::InternalError)?,
-    ))
+) -> Result<HttpResponse, FiledlError> {
+    Ok(HttpResponse::Ok()
+        .insert_header(cache_control(None))
+        .body(DirListingTemplate::new(app, object_path, items).render()?))
 }
 
 /// Not found handler used for default route
-async fn default_service() -> Result<HttpResponse, UserError> {
-    Err(UserError::NotFound)
+async fn default_service() -> Result<HttpResponse, FiledlError> {
+    Err(FiledlError::ObjectNotFound)
 }
 
 pub fn configure_pages(cfg: &mut web::ServiceConfig) {

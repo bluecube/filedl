@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 use thiserror::Error;
+use tokio::sync::RwLockReadGuard;
 use tokio::{fs, sync::RwLock};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -32,9 +33,57 @@ pub struct Object {
 }
 
 #[derive(Debug)]
-pub enum ResolvedObject {
-    File(PathBuf),
-    Directory(Vec<DirListingItem>),
+pub struct ResolvedObject<'a> {
+    path: PathBuf,
+    object: RwLockReadGuard<'a, Object>,
+    metadata: Metadata,
+    thumbnails: &'a CachedThumbnails,
+}
+
+impl<'a> ResolvedObject<'a> {
+    async fn new(
+        path: PathBuf,
+        object: RwLockReadGuard<'a, Object>,
+        thumbnails: &'a CachedThumbnails,
+    ) -> Result<Self, FiledlError> {
+        let metadata = fs::metadata(&path).await?;
+
+        Ok(ResolvedObject {
+            path,
+            object,
+            metadata,
+            thumbnails,
+        })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn metadata(&self) -> &Metadata {
+        &self.metadata
+    }
+
+    pub fn item_type(&self) -> ItemType {
+        ItemType::new(&self.path, &self.metadata)
+    }
+
+    pub async fn into_thumbnail(self, size: (u32, u32)) -> Result<(Bytes, String), FiledlError> {
+        self.thumbnails.get(self.path, &self.metadata, size).await
+    }
+
+    pub async fn list(&self) -> Result<Vec<DirListingItem>, FiledlError> {
+        let mut result = Vec::new();
+
+        let mut dir = fs::read_dir(&self.path).await?;
+        while let Some(entry) = dir.next_entry().await? {
+            if let Some(item) = DirListingItem::with_dir_entry(entry).await? {
+                result.push(item);
+            }
+        }
+
+        Ok(result)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -115,9 +164,7 @@ pub struct DirListingItem {
 impl DirListingItem {
     /// Create the dir listing item from directory entry.
     /// If the filename contains non-unicode characters, returns Ok(None).
-    async fn with_dir_entry(
-        entry: fs::DirEntry,
-    ) -> Result<Option<Self>, std::io::Error> {
+    async fn with_dir_entry(entry: fs::DirEntry) -> Result<Option<Self>, std::io::Error> {
         let Ok(name) = entry.file_name().into_string() else {
             return Ok(None);
         };
@@ -140,30 +187,29 @@ impl DirListingItem {
     }
 }
 
-impl ResolvedObject {
-    pub async fn with_directory(
-        path: &Path,
-    ) -> Result<Self, FiledlError> {
-        let mut result = Vec::new();
-
-        let mut dir = fs::read_dir(path).await?;
-        while let Some(entry) = dir.next_entry().await? {
-            if let Some(item) = DirListingItem::with_dir_entry(entry).await? {
-                result.push(item);
-            }
-        }
-
-        Ok(ResolvedObject::Directory(result))
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum FiledlError {
     #[error("Object not found")]
     ObjectNotFound,
     #[error("Object exists, but is unlisted")]
     Unlisted,
-    #[error("IO error")]
+    #[error("Attempting to use unsupported download mode")]
+    BadDownloadMode,
+    #[error("Zip downloads are unimplemented")]
+    UnimplementedZipDownload,
+    #[error("Template error: {source}")]
+    TemplateError {
+        #[from]
+        #[source]
+        source: askama::Error,
+    },
+    #[error("Image error: {source}")]
+    ImageError {
+        #[from]
+        #[source]
+        source: image::error::ImageError,
+    },
+    #[error("IO error: {source}")]
     IOError {
         #[from]
         #[source]
@@ -209,14 +255,6 @@ impl AppData {
         &self.static_content_hash
     }
 
-    pub async fn get_thumbnail(
-        &self,
-        file: PathBuf,
-        size: (u32, u32),
-    ) -> anyhow::Result<(Bytes, String)> {
-        self.thumbnails.get(file, size).await
-    }
-
     pub async fn get_thumbnail_cache_stats(&self) -> CacheStats {
         self.thumbnails.cache_stats().await
     }
@@ -234,15 +272,11 @@ impl AppData {
         }
     }
 
-    pub async fn resolve_object(
-        &self,
+    pub async fn resolve_object<'a>(
+        &'a self,
         path: &str,
         key: Option<&str>,
-    ) -> Result<ResolvedObject, FiledlError> {
-        // TODO: This function should return a guard that holds the read lock,
-        // This way the file corresponding to the object might get deleted after
-        // we release the read lock and clone.
-
+    ) -> Result<ResolvedObject<'a>, FiledlError> {
         let (object_id, subobject_path) = match path.split_once('/') {
             Some((object_id, subobject_path)) => (object_id, Some(subobject_path)),
             None => (path, None),
@@ -266,20 +300,15 @@ impl AppData {
             object_fs_path.push(subobject_path);
         }
 
-        let metadata = fs::metadata(&object_fs_path).await?;
-
-        if metadata.is_dir() {
-            ResolvedObject::with_directory(&object_fs_path).await
-        } else {
-            Ok(ResolvedObject::File(object_fs_path))
-        }
+        let result = ResolvedObject::new(object_fs_path, obj, &self.thumbnails).await?;
+        Ok(result)
     }
 
     async fn object_from_id<'a>(
         &'a self,
         id: &str,
-    ) -> Result<tokio::sync::RwLockReadGuard<'a, Object>, FiledlError> {
-        tokio::sync::RwLockReadGuard::try_map(self.objects.read().await, |objects| objects.get(id))
+    ) -> Result<RwLockReadGuard<'a, Object>, FiledlError> {
+        RwLockReadGuard::try_map(self.objects.read().await, |objects| objects.get(id))
             .map_err(|_| FiledlError::ObjectNotFound)
     }
 
