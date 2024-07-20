@@ -74,6 +74,10 @@ fn compile_scss(source: &Path, dest: &Path) {
 
     let compiled = grass::from_path(source, &options).unwrap();
 
+    let minified = css_minify::optimizations::Minifier::default()
+        .minify(&compiled, css_minify::optimizations::Level::Two)
+        .unwrap();
+
     let mut dest = File::create(dest).unwrap();
-    dest.write_all(&compiled.into_bytes()).unwrap();
+    dest.write_all(&minified.into_bytes()).unwrap();
 }

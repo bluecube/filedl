@@ -41,6 +41,7 @@ test-strategy = "0.3.1"
 
 [build-dependencies]
 anyhow = "1.0.75"
+css-minify = "0.3.1"
 grass = "0.13.3"
 minify-js = { git = "https://github.com/RuairidhWilliamson/minify-js.git", rev = "8637df1" }
 walkdir = "2.5.0"

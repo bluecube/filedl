@@ -770,6 +770,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "css-minify"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "874c6e2d19f8d4a285083b11a3241bfbe01ac3ed85f26e1e6b34888d960552bd"
+dependencies = [
+ "derive_more",
+ "indexmap 1.9.3",
+ "nom",
+]
+
+[[package]]
 name = "deranged"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -936,6 +947,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clap",
+ "css-minify",
  "env_logger",
  "fast_image_resize",
  "feruca",
