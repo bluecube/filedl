@@ -1,40 +1,179 @@
-@mixin icon() {
-    font-family: 'Material Icons Outlined';
-    font-weight: normal;
-    font-style: normal;
-    font-size: 2em;
+
+// str-replace and url-encode taken from https://gist.github.com/B-iggy/14da053d2cebf92e1930
+
+@function str-replace($string, $search, $replace: '') {
+  $index: str-index($string, $search);
+  @if $index {
+    @return str-slice($string, 1, $index - 1) + $replace + str-replace(str-slice($string, $index + str-length($search)), $search, $replace);
+  }
+  @return $string;
+}
+
+@function url-encode($string) {
+  $map: (
+   "%": "%25",
+   "<": "%3C",
+   ">": "%3E",
+   " ": "%20",
+   "!": "%21",
+   "*": "%2A",
+   "'": "%27",
+   '"': "%22",
+   "(": "%28",
+   ")": "%29",
+   ";": "%3B",
+   ":": "%3A",
+   "@": "%40",
+   "&": "%26",
+   "=": "%3D",
+   "+": "%2B",
+   "$": "%24",
+   ",": "%2C",
+   "/": "%2F",
+   "?": "%3F",
+   "#": "%23",
+   "[": "%5B",
+   "]": "%5D"
+   );
+  $new: $string;
+  @each $search, $replace in $map {
+    $new: str-replace($new, $search, $replace);
+  }
+  @return $new;
+}
+
+@function svg_icon($size, $color, $content) {
+    @return 'data:image/svg+xml,' + url-encode('<svg xmlns="http://www.w3.org/2000/svg" height="' + $size + '" viewBox="0 -960 960 960" width="' + $size + '" fill="' + $color + '"><path d="' + $content + '"/></svg>');
+}
+
+
+// Google Material icons, dissected and parametrized for size and color.
+
+@function home_icon($size, $color) {
+    @return svg_icon(
+        $size, $color,
+        'M240-200h120v-240h240v240h120v-360L480-740 240-560v360Zm-80 80v-480l320-240 320 240v480H520v-240h-80v240H160Zm320-350Z'
+    );
+}
+
+@function file_icon($size, $color) {
+    @return svg_icon(
+        $size, $color,
+        'M240-80q-33 0-56.5-23.5T160-160v-640q0-33 23.5-56.5T240-880h320l240 240v480q0 33-23.5 56.5T720-80H240Zm280-520v-200H240v640h480v-440H520ZM240-800v200-200 640-640Z'
+    );
+}
+
+@function directory_icon($size, $color) {
+    @return svg_icon(
+        $size, $color,
+        'M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h240l80 80h320q33 0 56.5 23.5T880-640v400q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H447l-80-80H160v480Zm0 0v-480 480Z'
+    );
+}
+
+@function image_icon($size, $color) {
+    @return svg_icon(
+        $size, $color,
+        'M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-560H200v560Zm40-80h480L570-480 450-320l-90-120-120 160Zm-40 80v-560 560Z'
+    );
+}
+
+@function download_icon($size, $color) {
+    @return svg_icon(
+        $size, $color,
+        'M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z'
+    );
+}
+
+@function close_icon($size, $color) {
+    @return svg_icon(
+        $size, $color,
+        'm256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z'
+    );
+}
+
+@function left_icon($size, $color) {
+    @return svg_icon(
+        $size, $color,
+        'm313-440 224 224-57 56-320-320 320-320 57 56-224 224h487v80H313Z'
+    );
+}
+
+@function right_icon($size, $color) {
+    @return svg_icon(
+        $size, $color,
+        'M647-440H160v-80h487L423-744l57-56 320 320-320 320-57-56 224-224Z'
+    );
+}
+
+$body-bg: #F2F4F5;
+$content-bg: #B3CDD5;
+$item-bg: #DAE1E4;
+
+$base-text: #333;
+$gallery-text: #ccc;
+
+@mixin icon_replacing_text($icon_function, $size, $color: $base-text) {
+    width: $size;
+    height: $size;
     display: inline-block;
-    line-height: 1;
-    text-transform: none;
-    letter-spacing: normal;
+    overflow: hidden;
+    visibility: hidden;
+    position: relative;
 
-    /* Support for all WebKit browsers. */
-    -webkit-font-smoothing: antialiased;
-    /* Support for Safari and Chrome. */
-    text-rendering: optimizeLegibility;
-
-    /* Support for Firefox. */
-    -moz-osx-font-smoothing: grayscale;
-
-    /* Support for IE. */
-    font-feature-settings: 'liga';
-
-    overflow-wrap: normal;
+    &::after {
+        width: 100%;
+        height: 100%;
+        content: url(call($icon_function, 100%, $color));
+        visibility: visible;
+        position: absolute;
+        top: 0;
+        left: 0;
+    }
 }
 
 body {
-    padding: 0.5em;
+    padding: 1em;
     margin-left: auto;
     margin-right: auto;
     max-width: 50em;
     font-family: sans-serif;
-    background: #F2F4F5;
+    background: $body-bg;
+}
+
+a:link, a:visited {
+    color: $base-text;
+}
+
+nav {
+    margin-top: 1em;
+    margin-bottom: 3em;
+
+    &, a, a:link {
+        color: $base-text;
+        font-family: "Lucida Console", Courier, monospace;
+        font-weight: bold;
+    }
+
+    .app_name {
+        font-size: 200%;
+        margin: 0;
+    }
+
+    h1 {
+        font-size: 140%;
+        margin: 0;
+
+        a.home {
+            @include icon_replacing_text(home_icon, 1.2em);
+            top: 0.2em; // A little hacky -- reusing the position: relative from the mixin
+        }
+    }
 }
 
 #content {
     width: 100%;
-    background: #B3CDD5;
-    box-shadow: 0 0 0 100vmax #B3CDD5;
+    background: $content-bg;
+    box-shadow: 0 0 0 100vmax $content-bg;
     padding-top: 0.7em;
     padding-bottom: 0.7em;
     margin-top: 1em;
@@ -42,145 +181,128 @@ body {
     clip-path: inset(0 -100vmax);
 }
 
-footer {
-    text-align: right;
-}
+.download-all {
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    margin-bottom: 0.7em;
+    padding-right: 0.05em; // To match the border of dir-listing items
 
-a:link {
-    color: #00C;
-}
 
-a:visited {
-    color: #609;
-}
+    a {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
 
-nav {
-    margin-top: 2em;
-    margin-bottom: 3em;
-}
+        &::after {
+            content: url(download_icon('100%', $base-text));
+            width: 2em;
+            height: 2em;
+            display: inline-block;
+            color: transparent;
 
-nav .app_name {
-    font-size: 200%;
-    margin: 0;
-}
-
-h1 {
-    font-size: 140%;
-    margin: 0;
-}
-
-h1, h1 a, h1 a:link, nav .app_name  {
-    color: #333;
-    font-family: "Lucida Console", Courier, monospace;
-    font-weight: bold;
-}
-
-h1 a.home {
-    @include icon;
-    font-size: 150%;
-    text-decoration: none;
-    vertical-align: bottom;
+            padding: 0 .5rem;
+            margin-right: 0.3em;
+        }
+    }
 }
 
 ul.dir-listing {
     width: 100%;
     margin: 0;
     padding: 0;
-}
+    padding-top: -0.2em;
+    padding-bottom: -0.2em;
 
-.dir-listing li {
-    list-style-type: none;
-    border: 0.05em solid #333;
-    border-radius: 0.3em;
-    background-color: #DAE1E4;
-    margin: 0;
-    margin-top: 0.2em;
-    margin-bottom: 0.2em;
-    padding: 0.3em;
-    min-height: 2.5em;
-    display: flex;
-    justify-content: flex-end;
-    flex-wrap: wrap;
-    align-items: center;
-}
+    li {
+        list-style-type: none;
+        border: 0.05em solid $base-text;
+        border-radius: 0.3em;
+        background-color: $item-bg;
+        margin: 0;
+        margin-top: 0.2em;
+        margin-bottom: 0.2em;
+        padding: 0.3em;
+        min-height: 2.5em;
+        display: flex;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        align-items: center;
 
-.dir-listing a.main-link {
-    display: block;
-    overflow-wrap: break-word;
-    max-width: 100%;
-    text-decoration: none;
-    flex: 1 0 auto;
-}
+        a.main-link {
+            display: block;
+            overflow-wrap: break-word;
+            max-width: 100%;
+            text-decoration: none;
+            flex: 1 0 auto;
 
-.dir-listing a.main-link .underlined {
-    text-decoration: underline;
-    margin-left: 0.5em;
-}
+            .underlined {
+                text-decoration: underline;
+                margin-left: 0.5em;
+            }
 
-.dir-listing img.thumbnail {
-    width: 4rem;
-    height: 4rem;
-    vertical-align: middle;
-    display: inline-block;
-    margin-left: -4rem;
-}
+            img.thumbnail, &::before {
+                width: 4rem;
+                height: 4rem;
+                vertical-align: middle;
+                display: inline-block;
+            }
 
-.dir-listing a.main-link::before {
-    @include icon;
-    box-sizing: border-box;
-    border: 0.05em solid #999;
-    color: #999;
-    width: 4rem;
-    height: 4rem;
-    vertical-align: middle;
-    display: inline-block;
-    text-align: center;
-    line-height: 3.8rem;
-}
+            img.thumbnail {
+                margin-left: -4rem;
+            }
 
-.dir-listing a.main-link::before {
-    content: "note";
-}
+            &::before {
+                content: url(file_icon(3rem, #999));
 
-.dir-listing .directory a.main-link::before {
-    content: "folder";
-}
+                box-sizing: border-box;
+                border: 0.05em solid #999;
+                text-align: center;
+                padding-top: .3em;
+            }
+        }
 
-.dir-listing .image a.main-link::before {
-    content: "image";
-}
+    }
 
-a.download {
-    @include icon;
-    font-size: 1.5em;
-    padding: 0 .5rem;
-    text-decoration: none;
-    color: #333;
-    vertical-align: middle;
-}
+    li.directory a.main-link::before {
+        content: url(directory_icon(3rem, #999));
+    }
 
-.dir-listing .details1 {
-    display: flex;
-    flex-direction: row;
-    flex: 0 0 auto;
-    align-items: center;
-}
+    li.image a.main-link::before {
+        content: url(image_icon(3rem, #999));
+    }
 
-.dir-listing .details2 {
-    display: flex;
-    flex-direction: column;
-    text-align: right;
-    max-width: 100%;
-}
+    .details1 {
+        display: flex;
+        flex-direction: row;
+        flex: 0 0 auto;
+        align-items: center;
+    }
 
-.dir-listing .details2 span {
-    overflow-wrap: break-word;
-    max-width: 100%;
+    .details2 {
+        display: flex;
+        flex-direction: column;
+        text-align: right;
+        max-width: 100%;
+
+        span {
+            overflow-wrap: break-word;
+            max-width: 100%;
+        }
+    }
+
+    a.download {
+        @include icon_replacing_text(download_icon, 2em);
+        margin: 0.5em
+    }
 }
 
 .empty-dir-listing {
     text-align: center;
     color: #999;
+    margin-top: 0.7em;
+    margin-bottom: 0.7em;
 }
 
 time .separator {
@@ -203,6 +325,148 @@ time .separator {
 
     opacity: 0;
     transition: opacity 0.5s ease;
+
+    .img-wrap {
+        position: relative;
+        align-self: center;
+        width: 100%;
+        flex: 0 1 auto;
+        min-height: 0;
+    }
+
+    img {
+        max-width: 100%;
+        max-height: 100%;
+        /*object-fit: contain;*/
+        margin: 0 auto;
+        display: block;
+
+        opacity: 1;
+        transition: opacity 0.5s ease-in;
+    }
+
+    .loading img {
+        opacity: 0;
+        transition: opacity 0.5s ease-out;
+    }
+
+    progress {
+        opacity: 0;
+        transition: opacity 0.5s ease-out;
+
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+
+        width: 8em;
+        height: .8em;
+        border: 0.01em solid $gallery-text;
+        background: transparent;
+
+        &::-webkit-progress-bar, &::-moz-progress-bar {
+            background-color: #ccc;
+        }
+
+        &:indeterminate::-webkit-progress-bar, &:indeterminate::-moz-progress-bar {
+            width: 30%;
+        }
+
+        &:indeterminate::-webkit-progress-bar, &:indeterminate::-moz-progress-bar {
+            width: 30%;
+            animation: 1.5s infinite alternate progress-bounce;
+            animation-timing-function: ease-in-out;
+        }
+    }
+
+    .loading progress {
+        opacity: 1;
+        transition: opacity 0.5s ease-in;
+    }
+
+    .info {
+        min-height: 2em;
+        color: $gallery-text;
+        text-align: center;
+        flex: 1 0 auto;
+    }
+
+    .placeholder {
+        min-height: 0;
+        flex: 1 0 auto;
+    }
+
+    a.download {
+        @include icon_replacing_text(download_icon, 2em, $gallery-text);
+        top: 0.5em; // A little hacky -- reusing the position: relative from the mixin
+        margin-left: 0.5em
+    }
+
+    @mixin gallery_icon($icon_function, $icon_size) {
+
+
+        &::after {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            content: url(call($icon_function, $icon_size, $base-text));
+            visibility: visible;
+            position: absolute;
+            top: 0;
+            left: 0;
+            filter: drop-shadow(#fff 0 0 0.2em);
+        }
+    }
+
+    a.close, a.prev, a.next {
+        display: block;
+        overflow: hidden;
+        visibility: hidden;
+        position: absolute;
+        text-align: center;
+        vertical-align: middle;
+        width: 20vw;
+        height: 20vh;
+        max-width: 50%;
+    }
+
+    a.close {
+        @include gallery_icon(close_icon, 3rem);
+        top: 0;
+        right: 0;
+        z-index: 20;
+    }
+
+    a.prev {
+        @include gallery_icon(left_icon, 3rem);
+        left: 0;
+        z-index: 8;
+    }
+
+    a.next {
+        @include gallery_icon(right_icon, 3rem);
+        right: 0;
+        z-index: 9;
+    }
+
+    a.prev, a.next {
+        top: 50%;
+        transform: translate(0, -50%);
+    }
+
+    a.hidden::after {
+        visibility: hidden;
+    }
+
+    .thumbnails {
+        width: 100%;
+        height: 20vh;
+        border: 1px solid red;
+        flex: none;
+    }
+
 }
 
 .gallery-visible #gallery {
@@ -212,58 +476,6 @@ time .separator {
     transition: opacity 0.5s ease;
 }
 
-#gallery .img-wrap {
-    position: relative;
-    align-self: center;
-    width: 100%;
-    flex: 0 1 auto;
-    min-height: 0;
-}
-
-#gallery img {
-    max-width: 100%;
-    max-height: 100%;
-    /*object-fit: contain;*/
-    margin: 0 auto;
-    display: block;
-
-    opacity: 1;
-    transition: opacity 0.5s ease-in;
-}
-
-#gallery .loading img {
-    opacity: 0;
-    transition: opacity 0.5s ease-out;
-}
-
-#gallery progress {
-    opacity: 0;
-    transition: opacity 0.5s ease-out;
-
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-
-    width: 8em;
-    height: .8em;
-    border: 0.01em solid #ccc;
-    background: transparent;
-}
-
-#gallery progress::-webkit-progress-bar, #gallery progress::-moz-progress-bar {
-    background-color: #ccc;
-}
-
-#gallery progress:indeterminate::-webkit-progress-bar, #gallery progress:indeterminate::-moz-progress-bar {
-    width: 30%;
-}
-
-#gallery progress:indeterminate::-webkit-progress-bar, #gallery progress:indeterminate::-moz-progress-bar {
-    width: 30%;
-    animation: 1.5s infinite alternate progress-bounce;
-    animation-timing-function: ease-in-out;
-}
 
 @keyframes progress-bounce {
     from {
@@ -274,74 +486,8 @@ time .separator {
     }
 }
 
-#gallery .loading progress {
-    opacity: 1;
-    transition: opacity 0.5s ease-in;
-}
-
-#gallery .info {
-    min-height: 2em;
-    color: #ccc;
-    text-align: center;
-    flex: 1 0 auto;
-}
-
-#gallery .placeholder {
-    min-height: 0;
-    flex: 1 0 auto;
-}
-
-#gallery .download {
-    color: #ccc;
-}
-
-#gallery a.close, #gallery a.prev, #gallery a.next {
-    @include icon;
-
-    position: absolute;
-    font-size: 3rem;
-    text-decoration: none;
-
-    padding: 1em;
-    color: #333;
-    text-shadow: 0 0 0.02em #fff, 0 0 0.2em #fff;
-}
-
-#gallery a.close {
-    top: 0;
-    right: 0;
+footer {
     text-align: right;
-    width: 15vw;
-    height: 10vh;
-    z-index: 10;
-}
-
-#gallery a.prev, #gallery a.next {
-    width: 20vw;
-    max-width: 50%;
-    height: 15vh;
-    top: 50%;
-    transform: translate(0, -50%);
-    line-height: 15vh;
-}
-
-#gallery a.prev {
-    left: 0;
-    text-align: left;
-    z-index: 8;
-}
-
-#gallery a.next {
-    right: 0;
-    text-align: right;
-    z-index: 9;
-}
-
-#gallery .thumbnails {
-    width: 100%;
-    height: 20vh;
-    border: 1px solid red;
-    flex: none;
 }
 
 .hidden {
