@@ -1,6 +1,3 @@
-#[derive(Debug, Clone)]
-pub struct Breadcrumbs<'a>(&'a str);
-
 /// Helper for displaying breadcrumb navigation over a slash separated path in a template.
 #[derive(Debug, Clone)]
 pub struct BreadcrumbsIterator<'a> {
