@@ -137,18 +137,18 @@ impl<'a> CacheSourceKey<'a> {
         }
     }
 
-    fn hash_string(&self) -> String {
+    fn get_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.hash(&mut hasher);
-        format!("{:X}", hasher.finish())
+        hasher.finish()
     }
 }
 
-fn get_source_hash(path: &Path, metadata: &Metadata) -> Option<String> {
+fn get_source_hash(path: &Path, metadata: &Metadata) -> Option<u64> {
     if metadata.is_dir() {
         None
     } else {
-        Some(CacheSourceKey::with_metadata(path, metadata).hash_string())
+        Some(CacheSourceKey::with_metadata(path, metadata).get_hash())
     }
 }
 
@@ -158,7 +158,7 @@ pub struct DirListingItem {
     pub item_type: ItemType,
     pub file_size: u64,
     pub modified: Option<DateTime<Utc>>,
-    pub source_hash: Option<String>,
+    pub source_hash: Option<u64>,
 }
 
 impl DirListingItem {

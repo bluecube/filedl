@@ -4,6 +4,7 @@ mod config;
 mod error;
 mod pages;
 mod storage;
+mod templates;
 mod thumbnails;
 
 use crate::pages::configure_pages;

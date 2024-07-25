@@ -1,5 +1,5 @@
-use crate::breadcrumbs::BreadcrumbsIterator;
 use crate::error::FiledlError;
+use crate::templates;
 use crate::{
     app_data::{AppData, DirListingItem, ItemType, ResolvedObject},
     error::Result,
@@ -12,8 +12,8 @@ use actix_web::{
     web::Redirect,
     Either, HttpResponse, Responder, ResponseError,
 };
-use askama::Template;
-use chrono_tz::Tz;
+use horrorshow::Template as _;
+use mime::TEXT_HTML_UTF_8;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -76,42 +76,6 @@ impl ResponseError for FiledlError {
     }
 }
 
-// TODO: Responsive images
-#[derive(Template)]
-#[template(path = "dir_listing.html")]
-struct DirListingTemplate<'a> {
-    // TODO: Proper URL escaping!
-    app_name: &'a str,
-    display_timezone: &'a Tz,
-    /// List of path elements to this directory, rooted at the download directory
-    download_base_url: &'a str,
-    static_content_hash: &'a str,
-
-    directory_path: &'a str,
-    directory_breadcrumbs: BreadcrumbsIterator<'a>,
-    items: Vec<DirListingItem>,
-}
-
-impl<'a> DirListingTemplate<'a> {
-    fn new(
-        app: &'a AppData,
-        object_path: &'a str,
-        mut items: Vec<DirListingItem>,
-    ) -> DirListingTemplate<'a> {
-        let mut collator = feruca::Collator::default();
-        items.sort_unstable_by(|a, b| collator.collate(a.name.as_bytes(), b.name.as_bytes()));
-        DirListingTemplate {
-            app_name: app.get_app_name(),
-            display_timezone: app.get_display_timezone(),
-            download_base_url: app.get_download_base_url(),
-            static_content_hash: app.get_static_content_hash(),
-            directory_path: object_path,
-            directory_breadcrumbs: BreadcrumbsIterator::new(object_path),
-            items,
-        }
-    }
-}
-
 #[routes]
 #[get("/index.html")]
 #[get("/")]
@@ -131,8 +95,9 @@ async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
 
 #[get("/download")]
 async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok()
-        .body(DirListingTemplate::new(&app, "", app.list_objects().await?).render()?))
+    Ok(HttpResponse::Ok().content_type(TEXT_HTML_UTF_8).body(
+        templates::DirListing::new_wrapped(&app, "", app.list_objects().await?).into_string()?,
+    ))
 }
 
 #[get("/download/{object:.*}")]
@@ -142,7 +107,6 @@ async fn download_object(
     query: web::Query<DownloadQuery>,
 ) -> Result<Either<NamedFile, HttpResponse>> {
     let object_path = path.into_inner();
-
     if query.mode == DownloadMode::Internal {
         match object_path.as_str() {
             "style.css" => Ok(Either::Right(style_css(query.cache_hash.as_deref()))),
@@ -248,8 +212,9 @@ async fn dir_listing(
     items: Vec<DirListingItem>,
 ) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok()
+        .content_type(TEXT_HTML_UTF_8)
         .insert_header(cache_control(None))
-        .body(DirListingTemplate::new(app, object_path, items).render()?))
+        .body(templates::DirListing::new_wrapped(app, object_path, items).into_string()?))
 }
 
 /// Not found handler used for default route
@@ -265,25 +230,3 @@ pub fn configure_pages(cfg: &mut web::ServiceConfig) {
         .service(download_root)
         .service(download_object);
 }
-
-mod filters {
-    use chrono::prelude::*;
-    use chrono_tz::Tz;
-
-    pub fn time_format(time: &Option<DateTime<Utc>>, tz: &Tz) -> askama::Result<String> {
-        let Some(time) = time else {
-            return Ok("".into());
-        };
-
-        let converted = time.with_timezone(tz);
-
-        Ok(format!(
-            "{}",
-            converted.format(
-                r#"<time datetime="%+">%Y-%m-%d<span class="separator">T</span>%H:%M:%S</time>"#
-            )
-        ))
-    }
-}
-
-// TODO: Handle internal errors better, clean up all map_err. Use logging.

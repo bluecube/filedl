@@ -14,7 +14,7 @@ pub enum FiledlError {
     TemplateError {
         #[from]
         #[source]
-        source: askama::Error,
+        source: horrorshow::Error,
     },
     #[error("Image error: {source}")]
     ImageError {
