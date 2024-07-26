@@ -43,6 +43,13 @@ nav {
             height: 1.3em;
             margin-bottom: -0.25em;
         }
+
+        img.unlisted {
+            width: 1em;
+            height: 1em;
+            filter: opacity(75%);
+            margin-left: 0.5em;
+        }
     }
 }
 

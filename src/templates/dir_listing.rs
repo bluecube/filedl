@@ -21,6 +21,7 @@ pub struct DirListing<'a> {
     display_timezone: &'a Tz,
     directory_path: &'a str,
     static_content_hash: &'a str,
+    is_unlisted: bool,
     items: Vec<DirListingItem>,
 }
 
@@ -28,6 +29,7 @@ impl<'a> DirListing<'a> {
     pub fn new_wrapped(
         app: &'a AppData,
         directory_path: &'a str,
+        unlisted: bool,
         mut items: Vec<DirListingItem>,
     ) -> Page<'a, Title<'a>, DirListing<'a>> {
         let mut collator = feruca::Collator::default();
@@ -39,6 +41,7 @@ impl<'a> DirListing<'a> {
             display_timezone: app.get_display_timezone(),
             directory_path,
             static_content_hash: app.get_static_content_hash(),
+            is_unlisted: unlisted,
             items,
         };
         Page {
@@ -133,7 +136,10 @@ impl<'a> RenderOnce for DirListing<'a> {
                     a(href = format_args!("{}", url_encode(self.download_base_url))) {
                         img(src = self.asset_url("home.svg"), alt = "Home", title = "Home");
                     }
-                    |tmpl| self.render_breadcrumbs(tmpl)
+                    |tmpl| self.render_breadcrumbs(tmpl);
+                    @ if self.is_unlisted {
+                        img(src = self.asset_url("hidden.svg"), class = "unlisted", alt = "unlisted directory", title = "unlisted directory");
+                    }
                 }
             }
 
