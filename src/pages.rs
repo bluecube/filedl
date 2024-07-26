@@ -13,7 +13,6 @@ use actix_web::{
     Either, HttpResponse, Responder, ResponseError,
 };
 use horrorshow::Template as _;
-use mime::TEXT_HTML_UTF_8;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -41,6 +40,11 @@ struct DownloadQuery {
     #[serde(default)]
     cache_hash: Option<String>,
 }
+
+const CACHE_CONTROL_IMMUTABLE: (&'static str, &'static str) = (
+    "Cache-Control",
+    "max-age=31536000, immutable", // 1 year
+);
 
 /// generate a cache control header based on the cache_hash received
 fn cache_control(cache_hash: Option<&str>) -> (&'static str, &'static str) {
@@ -95,7 +99,7 @@ async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
 
 #[get("/download")]
 async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok().content_type(TEXT_HTML_UTF_8).body(
+    Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(
         templates::DirListing::new_wrapped(&app, "", app.list_objects().await?).into_string()?,
     ))
 }
@@ -108,11 +112,13 @@ async fn download_object(
 ) -> Result<Either<NamedFile, HttpResponse>> {
     let object_path = path.into_inner();
     if query.mode == DownloadMode::Internal {
-        match object_path.as_str() {
-            "style.css" => Ok(Either::Right(style_css(query.cache_hash.as_deref()))),
-            "gallery.js" => Ok(Either::Right(gallery_js(query.cache_hash.as_deref()))),
-            &_ => Err(FiledlError::ObjectNotFound),
-        }
+        let (content, ct) = assets(&object_path).ok_or(FiledlError::ObjectNotFound)?;
+        Ok(Either::Right(
+            HttpResponse::Ok()
+                .insert_header(header::ContentType(ct))
+                .insert_header(CACHE_CONTROL_IMMUTABLE)
+                .body(content),
+        ))
     } else {
         let resolved_object = app
             .resolve_object(object_path.as_str(), query.key.as_deref())
@@ -158,20 +164,6 @@ async fn download_object(
     }
 }
 
-fn style_css(cache_hash: Option<&str>) -> HttpResponse {
-    HttpResponse::Ok()
-        .insert_header(header::ContentType(mime::TEXT_CSS_UTF_8))
-        .insert_header(cache_control(cache_hash))
-        .body(include_bytes!(concat!(env!("OUT_DIR"), "/assets/style.css")).as_slice())
-}
-
-fn gallery_js(cache_hash: Option<&str>) -> HttpResponse {
-    HttpResponse::Ok()
-        .insert_header(header::ContentType(mime::TEXT_JAVASCRIPT))
-        .insert_header(cache_control(cache_hash))
-        .body(include_bytes!(concat!(env!("OUT_DIR"), "/assets/gallery.js")).as_slice())
-}
-
 async fn file_download<'a>(
     resolved_object: ResolvedObject<'a>,
     force_download: bool,
@@ -212,7 +204,7 @@ async fn dir_listing(
     items: Vec<DirListingItem>,
 ) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok()
-        .content_type(TEXT_HTML_UTF_8)
+        .content_type(mime::TEXT_HTML_UTF_8)
         .insert_header(cache_control(None))
         .body(templates::DirListing::new_wrapped(app, object_path, items).into_string()?))
 }
@@ -230,3 +222,5 @@ pub fn configure_pages(cfg: &mut web::ServiceConfig) {
         .service(download_root)
         .service(download_object);
 }
+
+include! {concat!(env!("OUT_DIR"), "/assets/assets.rs")}
