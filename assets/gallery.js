@@ -23,7 +23,7 @@ function galleryInit() {
 
     galleryBg = document.getElementById("gallery");
     galleryImgWrap = galleryBg.querySelector(".img-wrap");
-    galleryImg = galleryImgWrap.querySelector("img");
+    galleryImg = galleryImgWrap.querySelector("img.main");
     progressBar = galleryImgWrap.querySelector("progress");
     closeButton = galleryBg.querySelector("a.close");
     prevButton = galleryBg.querySelector("a.prev");

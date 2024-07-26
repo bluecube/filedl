@@ -1,135 +1,10 @@
-
-// str-replace and url-encode taken from https://gist.github.com/B-iggy/14da053d2cebf92e1930
-
-@function str-replace($string, $search, $replace: '') {
-  $index: str-index($string, $search);
-  @if $index {
-    @return str-slice($string, 1, $index - 1) + $replace + str-replace(str-slice($string, $index + str-length($search)), $search, $replace);
-  }
-  @return $string;
-}
-
-@function url-encode($string) {
-  $map: (
-   "%": "%25",
-   "<": "%3C",
-   ">": "%3E",
-   " ": "%20",
-   "!": "%21",
-   "*": "%2A",
-   "'": "%27",
-   '"': "%22",
-   "(": "%28",
-   ")": "%29",
-   ";": "%3B",
-   ":": "%3A",
-   "@": "%40",
-   "&": "%26",
-   "=": "%3D",
-   "+": "%2B",
-   "$": "%24",
-   ",": "%2C",
-   "/": "%2F",
-   "?": "%3F",
-   "#": "%23",
-   "[": "%5B",
-   "]": "%5D"
-   );
-  $new: $string;
-  @each $search, $replace in $map {
-    $new: str-replace($new, $search, $replace);
-  }
-  @return $new;
-}
-
-@function svg_icon($size, $color, $content) {
-    @return 'data:image/svg+xml,' + url-encode('<svg xmlns="http://www.w3.org/2000/svg" height="' + $size + '" viewBox="0 -960 960 960" width="' + $size + '" fill="' + $color + '"><path d="' + $content + '"/></svg>');
-}
-
-
-// Google Material icons, dissected and parametrized for size and color.
-
-@function home_icon($size, $color) {
-    @return svg_icon(
-        $size, $color,
-        'M240-200h120v-240h240v240h120v-360L480-740 240-560v360Zm-80 80v-480l320-240 320 240v480H520v-240h-80v240H160Zm320-350Z'
-    );
-}
-
-@function file_icon($size, $color) {
-    @return svg_icon(
-        $size, $color,
-        'M240-80q-33 0-56.5-23.5T160-160v-640q0-33 23.5-56.5T240-880h320l240 240v480q0 33-23.5 56.5T720-80H240Zm280-520v-200H240v640h480v-440H520ZM240-800v200-200 640-640Z'
-    );
-}
-
-@function directory_icon($size, $color) {
-    @return svg_icon(
-        $size, $color,
-        'M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h240l80 80h320q33 0 56.5 23.5T880-640v400q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H447l-80-80H160v480Zm0 0v-480 480Z'
-    );
-}
-
-@function image_icon($size, $color) {
-    @return svg_icon(
-        $size, $color,
-        'M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-560H200v560Zm40-80h480L570-480 450-320l-90-120-120 160Zm-40 80v-560 560Z'
-    );
-}
-
-@function download_icon($size, $color) {
-    @return svg_icon(
-        $size, $color,
-        'M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z'
-    );
-}
-
-@function close_icon($size, $color) {
-    @return svg_icon(
-        $size, $color,
-        'm256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z'
-    );
-}
-
-@function left_icon($size, $color) {
-    @return svg_icon(
-        $size, $color,
-        'm313-440 224 224-57 56-320-320 320-320 57 56-224 224h487v80H313Z'
-    );
-}
-
-@function right_icon($size, $color) {
-    @return svg_icon(
-        $size, $color,
-        'M647-440H160v-80h487L423-744l57-56 320 320-320 320-57-56 224-224Z'
-    );
-}
-
 $body-bg: #F2F4F5;
 $content-bg: #B3CDD5;
 $item-bg: #DAE1E4;
 
 $base-text: #333;
 $gallery-text: #ccc;
-
-@mixin icon_replacing_text($icon_function, $size, $color: $base-text) {
-    width: $size;
-    height: $size;
-    display: inline-block;
-    overflow: hidden;
-    visibility: hidden;
-    position: relative;
-
-    &::after {
-        width: 100%;
-        height: 100%;
-        content: url(call($icon_function, 100%, $color));
-        visibility: visible;
-        position: absolute;
-        top: 0;
-        left: 0;
-    }
-}
+$light-text: #aaa;
 
 body {
     padding: 1em;
@@ -163,9 +38,10 @@ nav {
         font-size: 140%;
         margin: 0;
 
-        a.home {
-            @include icon_replacing_text(home_icon, 1.2em);
-            top: 0.2em; // A little hacky -- reusing the position: relative from the mixin
+        img {
+            width: 1.3em;
+            height: 1.3em;
+            margin-bottom: -0.25em;
         }
     }
 }
@@ -194,16 +70,12 @@ nav {
         display: flex;
         justify-content: flex-end;
         align-items: center;
+        padding-right: 0.3em;
 
-        &::after {
-            content: url(download_icon('100%', $base-text));
+        img {
             width: 2em;
             height: 2em;
-            display: inline-block;
-            color: transparent;
-
-            padding: 0 .5rem;
-            margin-right: 0.3em;
+            margin: 0.5em
         }
     }
 }
@@ -242,35 +114,13 @@ ul.dir-listing {
                 margin-left: 0.5em;
             }
 
-            img.thumbnail, &::before {
+            img {
                 width: 4rem;
                 height: 4rem;
                 vertical-align: middle;
                 display: inline-block;
             }
-
-            img.thumbnail {
-                margin-left: -4rem;
-            }
-
-            &::before {
-                content: url(file_icon(3rem, #999));
-
-                box-sizing: border-box;
-                border: 0.05em solid #999;
-                text-align: center;
-                padding-top: .3em;
-            }
         }
-
-    }
-
-    li.directory a.main-link::before {
-        content: url(directory_icon(3rem, #999));
-    }
-
-    li.image a.main-link::before {
-        content: url(image_icon(3rem, #999));
     }
 
     .details1 {
@@ -292,8 +142,9 @@ ul.dir-listing {
         }
     }
 
-    a.download {
-        @include icon_replacing_text(download_icon, 2em);
+    a.download img {
+        width: 2em;
+        height: 2em;
         margin: 0.5em
     }
 }
@@ -334,7 +185,7 @@ time .separator {
         min-height: 0;
     }
 
-    img {
+    img.main {
         max-width: 100%;
         max-height: 100%;
         /*object-fit: contain;*/
@@ -396,57 +247,27 @@ time .separator {
         flex: 1 0 auto;
     }
 
-    a.download {
-        @include icon_replacing_text(download_icon, 2em, $gallery-text);
-        top: 0.5em; // A little hacky -- reusing the position: relative from the mixin
-        margin-left: 0.5em
-    }
-
-    @mixin gallery_icon($icon_function, $icon_size) {
-
-
-        &::after {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-            height: 100%;
-            content: url(call($icon_function, $icon_size, $base-text));
-            visibility: visible;
-            position: absolute;
-            top: 0;
-            left: 0;
-            filter: drop-shadow(#fff 0 0 0.2em);
-        }
-    }
-
     a.close, a.prev, a.next {
-        display: block;
-        overflow: hidden;
-        visibility: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         position: absolute;
-        text-align: center;
-        vertical-align: middle;
         width: 20vw;
-        height: 20vh;
-        max-width: 50%;
+        height: 8em;
     }
 
     a.close {
-        @include gallery_icon(close_icon, 3rem);
         top: 0;
         right: 0;
         z-index: 20;
     }
 
     a.prev {
-        @include gallery_icon(left_icon, 3rem);
         left: 0;
         z-index: 8;
     }
 
     a.next {
-        @include gallery_icon(right_icon, 3rem);
         right: 0;
         z-index: 9;
     }
@@ -456,8 +277,10 @@ time .separator {
         transform: translate(0, -50%);
     }
 
-    a.hidden::after {
-        visibility: hidden;
+    a img {
+        height: 4em;
+        width: 4em;
+        filter: brightness(0) drop-shadow(#000 0 0 0.1em) drop-shadow(#fff 0 0 0.5em);
     }
 
     .thumbnails {

@@ -3,13 +3,14 @@ use std::fmt::{Display, Write};
 use super::{
     page::Page,
     util::{url_encode, FormatedIsoTimestamp},
+    AssetUrl,
 };
 use chrono_tz::Tz;
 use horrorshow::{html, labels_sep_by, RenderOnce, TemplateBuffer};
 use humansize::{format_size, BINARY};
 
 use crate::{
-    app_data::{AppData, DirListingItem},
+    app_data::{AppData, DirListingItem, ItemType},
     breadcrumbs::BreadcrumbsIterator,
 };
 
@@ -19,6 +20,7 @@ pub struct DirListing<'a> {
     download_base_url: &'a str,
     display_timezone: &'a Tz,
     directory_path: &'a str,
+    static_content_hash: &'a str,
     items: Vec<DirListingItem>,
 }
 
@@ -36,6 +38,7 @@ impl<'a> DirListing<'a> {
             download_base_url: app.get_download_base_url(),
             display_timezone: app.get_display_timezone(),
             directory_path,
+            static_content_hash: app.get_static_content_hash(),
             items,
         };
         Page {
@@ -74,6 +77,16 @@ impl<'a> DirListing<'a> {
                             loading = "lazy"
                         );
                     }
+                    @ if !item.item_type.is_thumbnailable() {
+                        img(
+                            class = "thumbnail",
+                            src = match item.item_type {
+                                ItemType::Image => self.asset_url("image.svg"),
+                                ItemType::Directory => self.asset_url("directory.svg"),
+                                _ => self.asset_url("file.svg"),
+                            }
+                        );
+                    }
                     span(class = "underlined") {
                         : item.name.as_ref();
                         @ if item.item_type.is_directory() {
@@ -92,10 +105,20 @@ impl<'a> DirListing<'a> {
                             : FormatedIsoTimestamp(modified.with_timezone(self.display_timezone))
                         }
                     }
-                    a(class = "download", href = format_args!("{}{}mode=download", url, url.next_qs_separator())): "Download";
+                    a(class = "download", href = format_args!("{}{}mode=download", url, url.next_qs_separator())) {
+                        img(src = self.asset_url("download.svg"), alt = "Download", title = "Download");
+                    }
                 }
             }
         )
+    }
+
+    fn asset_url(&self, file_name: &'a str) -> AssetUrl<'a> {
+        AssetUrl {
+            download_base_url: self.download_base_url,
+            file_name,
+            cache_hash: self.static_content_hash,
+        }
     }
 }
 
@@ -107,7 +130,9 @@ impl<'a> RenderOnce for DirListing<'a> {
                     div(class = "app-name"): self.app_name;
                 }
                 h1(class = "breadcrumbs") {
-                    a(class = "home", href = format_args!("{}", url_encode(self.download_base_url))): "home";
+                    a(href = format_args!("{}", url_encode(self.download_base_url))) {
+                        img(src = self.asset_url("home.svg"), alt = "Home", title = "Home");
+                    }
                     |tmpl| self.render_breadcrumbs(tmpl)
                 }
             }
@@ -126,7 +151,10 @@ impl<'a> RenderOnce for DirListing<'a> {
                                     url_encode(self.download_base_url),
                                     url_encode(self.directory_path)
                                 )
-                            ) : "Download all";
+                            ) {
+                              : "Download all";
+                              img(src = self.asset_url("download.svg"), alt = "");
+                            }
                         }
                     }
                     ul(class = "dir-listing") {
@@ -138,12 +166,18 @@ impl<'a> RenderOnce for DirListing<'a> {
             }
 
             section(id = "gallery") {
-                a(href = "#", class = "close"): "Close";
+                a(href = "#", class = "close") {
+                        img(src = self.asset_url("close.svg"), alt = "Close gallery", title = "Close gallery");
+                    }
                 div(class = "placeholder");
                 div(class = "img-wrap") {
-                    a(href = "#", class = "prev"): "Previous";
-                    a(href = "#", class = "next"): "Next";
-                    img(src = "data:,", alt = "Gallery image");
+                    a(href = "#", class = "prev") {
+                        img(src = self.asset_url("arrow_back.svg"), alt = "Previous image", title = "Previous image");
+                    }
+                    a(href = "#", class = "next") {
+                        img(src = self.asset_url("arrow_forward.svg"), alt = "Next image", title = "Next image");
+                    }
+                    img(src = "data:,", class="main", alt = "Gallery image");
                     progress;
                 }
                 div(class = "info") {
