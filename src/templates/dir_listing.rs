@@ -15,11 +15,11 @@ use crate::{
 
 pub struct DirListing<'a> {
     // TODO: URL encode directory path and items name on construction
-    pub app_name: &'a str,
-    pub download_base_url: &'a str,
-    pub display_timezone: &'a Tz,
-    pub directory_path: &'a str,
-    pub items: Vec<DirListingItem>,
+    app_name: &'a str,
+    download_base_url: &'a str,
+    display_timezone: &'a Tz,
+    directory_path: &'a str,
+    items: Vec<DirListingItem>,
 }
 
 impl<'a> DirListing<'a> {
