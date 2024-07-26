@@ -1,4 +1,4 @@
-use super::util::url_encode;
+use super::{util::url_encode, AssetUrl};
 use chrono_tz::Tz;
 use horrorshow::{helper::doctype, html, prelude::TemplateBuffer, RenderOnce};
 
@@ -21,15 +21,15 @@ impl<'a, T: RenderOnce, C: RenderOnce> RenderOnce for Page<'a, T, C> {
                     meta(
                         name = "viewport", content="width=device-width, initial-scale=1"
                     );
-                    title: self.title;
                     link(
                         rel = "stylesheet",
-                        href = format_args!("{}/style.css?mode=internal&cache_hash={}", url_encode(self.download_base_url), self.static_content_hash)
+                        href = self.asset_url("style.css")
                     );
                     script(
-                        src = format_args!("{}/gallery.js?mode=internal&cache_hash={}", url_encode(self.download_base_url), self.static_content_hash),
+                        src = self.asset_url("gallery.js"),
                         defer
                     );
+                    title: self.title;
                 }
                 body {
                     : self.content;
@@ -51,5 +51,15 @@ impl<'a, T: RenderOnce, C: RenderOnce> RenderOnce for Page<'a, T, C> {
                 }
             }
         );
+    }
+}
+
+impl<'a, T: RenderOnce, C: RenderOnce> Page<'a, T, C> {
+    fn asset_url(&self, file_name: &'a str) -> AssetUrl<'a> {
+        AssetUrl {
+            download_base_url: self.download_base_url,
+            file_name,
+            cache_hash: self.static_content_hash,
+        }
     }
 }
