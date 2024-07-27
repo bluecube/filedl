@@ -5,12 +5,14 @@ use image::{
 };
 use lru::LruCache;
 use serde::Serialize;
-use std::fs::Metadata;
-use std::hash::{Hash, Hasher};
-use std::io::Cursor;
-use std::num::NonZeroU32;
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::{
+    fs::Metadata,
+    hash::{Hash, Hasher},
+    io::Cursor,
+    num::NonZeroU32,
+    path::{Path, PathBuf},
+    time::SystemTime,
+};
 use tokio::{sync::Mutex, task::spawn_blocking};
 
 /// Describes a cached rendered thumbnail

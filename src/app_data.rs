@@ -1,21 +1,26 @@
-use crate::config::Config;
-use crate::error::{FiledlError, Result};
-use crate::storage::Storage;
-use crate::thumbnails::{is_thumbnailable, CacheStats, CachedThumbnails};
+use crate::{
+    config::Config,
+    error::{FiledlError, Result},
+    storage::Storage,
+    thumbnails::{is_thumbnailable, CacheStats, CachedThumbnails},
+};
 use actix_web::web::Bytes;
-use chrono::prelude::*;
+use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use rand::{thread_rng, RngCore};
 use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
-use std::fs::Metadata;
-use std::hash::{Hash, Hasher};
-use std::path::Path;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::SystemTime;
-use tokio::sync::RwLockReadGuard;
-use tokio::{fs, sync::RwLock};
+use std::{
+    fs::Metadata,
+    hash::{Hash, Hasher},
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::SystemTime,
+};
+use tokio::{
+    fs,
+    sync::{RwLock, RwLockReadGuard},
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ObjectOwnership {

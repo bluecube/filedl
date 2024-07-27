@@ -1,9 +1,5 @@
 use serde::{de::DeserializeOwned, Serialize};
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::BufReader;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{collections::HashMap, fs::File, io::BufReader, path::PathBuf, sync::Arc};
 
 #[derive(Debug)]
 pub struct Storage<T: Serialize + DeserializeOwned> {

@@ -1,13 +1,12 @@
-use crate::error::FiledlError;
-use crate::templates;
 use crate::{
     app_data::{AppData, DirListingItem, ItemType, ResolvedObject},
-    error::Result,
+    error::{FiledlError, Result},
+    templates,
 };
 use actix_files::NamedFile;
 use actix_web::{
     get,
-    http::{header, header::DispositionType, StatusCode},
+    http::{header, StatusCode},
     routes, web,
     web::Redirect,
     Either, HttpResponse, Responder, ResponseError,
@@ -179,7 +178,7 @@ async fn file_download<'a>(
 
     if force_download {
         let mut cd = nf.content_disposition().clone();
-        cd.disposition = DispositionType::Attachment;
+        cd.disposition = header::DispositionType::Attachment;
         nf = nf.set_content_disposition(cd);
     }
 

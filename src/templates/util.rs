@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use chrono::{DateTime, Datelike, TimeZone, Timelike};
 use horrorshow::{html, RenderOnce};
 
