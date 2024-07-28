@@ -15,7 +15,6 @@ use crate::{
 };
 
 pub struct DirListing<'a> {
-    // TODO: URL encode directory path and items name on construction
     app_name: &'a str,
     download_base_url: &'a str,
     display_timezone: &'a Tz,
@@ -56,7 +55,7 @@ impl<'a> DirListing<'a> {
         tmpl << html!(
             @ for crumb in BreadcrumbsIterator::new(self.directory_path) {
                 : "/";
-                a(href = format_args!("{}/{}", url_encode(&self.download_base_url), url_encode(crumb.link_url))): crumb.name;
+                a(href = format_args!("{}/{}", self.download_base_url, url_encode(crumb.link_url))): crumb.name;
             }
         );
     }
@@ -133,7 +132,7 @@ impl<'a> RenderOnce for DirListing<'a> {
                     div(class = "app-name"): self.app_name;
                 }
                 h1(class = "breadcrumbs") {
-                    a(href = format_args!("{}", url_encode(self.download_base_url))) {
+                    a(href = self.asset_url("home.svg")) {
                         img(src = self.asset_url("home.svg"), alt = "Home", title = "Home");
                     }
                     |tmpl| self.render_breadcrumbs(tmpl);
@@ -154,7 +153,7 @@ impl<'a> RenderOnce for DirListing<'a> {
                             a (
                                 href = format_args!(
                                     "{}/{}?mode=download",
-                                    url_encode(self.download_base_url),
+                                    self.download_base_url,
                                     url_encode(self.directory_path)
                                 )
                             ) {
@@ -205,7 +204,7 @@ struct ItemUrl<'a> {
 
 impl<'a> Display for ItemUrl<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/", url_encode(self.download_base_url))?;
+        write!(f, "{}/", self.download_base_url)?;
         if !self.directory_path.is_empty() {
             write!(f, "{}/", url_encode(self.directory_path))?;
         }

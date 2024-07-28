@@ -2,6 +2,7 @@ use crate::{
     config::Config,
     error::{FiledlError, Result},
     storage::Storage,
+    templates::util::url_encode,
     thumbnails::{is_thumbnailable, CacheStats, CachedThumbnails},
 };
 use actix_web::web::Bytes;
@@ -202,6 +203,7 @@ pub struct AppData {
     // The RwLock not only protects the Storage object, but also the data stored on the filesystem
     thumbnails: CachedThumbnails,
     static_content_hash: String,
+    download_base_url: String,
 }
 
 impl AppData {
@@ -210,16 +212,20 @@ impl AppData {
         let objects = RwLock::new(Storage::new(path)?);
         let thumbnail_cache_size = config.thumbnail_cache_size;
         let static_content_hash = format!("{:X}", thread_rng().next_u32());
+        let download_base_url = format!("{}", url_encode(&config.download_url))
+            .trim_end_matches('/')
+            .to_owned();
         Ok(AppData {
             config,
             objects,
             thumbnails: CachedThumbnails::new(thumbnail_cache_size),
             static_content_hash,
+            download_base_url,
         })
     }
 
     pub fn get_download_base_url(&self) -> &str {
-        &self.config.download_url
+        &self.download_base_url
     }
 
     pub fn get_app_name(&self) -> &str {

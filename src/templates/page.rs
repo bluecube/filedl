@@ -1,4 +1,4 @@
-use super::{util::url_encode, AssetUrl};
+use super::AssetUrl;
 use chrono_tz::Tz;
 use horrorshow::{helper::doctype, html, prelude::TemplateBuffer, RenderOnce};
 

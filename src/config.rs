@@ -47,6 +47,8 @@ pub struct Config {
     /// Root path for all linked objects
     pub linked_objects_root: PathBuf,
 
+    /// URL where the download side of the app is located.
+    /// The default `download` means that links lead to `http://server/download/`.
     #[serde(default = "default_download_url")]
     pub download_url: String,
 

@@ -1,6 +1,6 @@
 mod dir_listing;
 mod page;
-mod util;
+pub mod util;
 
 use std::fmt::{Display, Formatter};
 
@@ -19,9 +19,7 @@ impl<'a> Display for AssetUrl<'a> {
         write!(
             f,
             "{}/{}?mode=internal&cache_hash={}",
-            util::url_encode(self.download_base_url),
-            self.file_name,
-            self.cache_hash
+            self.download_base_url, self.file_name, self.cache_hash
         )
     }
 }
