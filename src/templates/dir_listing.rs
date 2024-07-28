@@ -1,6 +1,7 @@
 use std::fmt::{Display, Write};
 
 use super::{
+    breadcrumbs::BreadcrumbsIterator,
     page::Page,
     util::{url_encode, FormatedIsoTimestamp},
     AssetUrl,
@@ -9,10 +10,7 @@ use chrono_tz::Tz;
 use horrorshow::{html, labels_sep_by, RenderOnce, TemplateBuffer};
 use humansize::{format_size, BINARY};
 
-use crate::{
-    app_data::{AppData, DirListingItem, ItemType},
-    breadcrumbs::BreadcrumbsIterator,
-};
+use crate::app_data::{AppData, DirListingItem, ItemType};
 
 pub struct DirListing<'a> {
     app_name: &'a str,

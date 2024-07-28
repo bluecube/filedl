@@ -1,3 +1,4 @@
+mod breadcrumbs;
 mod dir_listing;
 mod page;
 pub mod util;
