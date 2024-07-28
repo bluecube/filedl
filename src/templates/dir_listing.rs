@@ -130,7 +130,7 @@ impl<'a> RenderOnce for DirListing<'a> {
                     div(class = "app-name"): self.app_name;
                 }
                 h1(class = "breadcrumbs") {
-                    a(href = self.asset_url("home.svg")) {
+                    a(href = self.download_base_url) {
                         img(src = self.asset_url("home.svg"), alt = "Home", title = "Home");
                     }
                     |tmpl| self.render_breadcrumbs(tmpl);
