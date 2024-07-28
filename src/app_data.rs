@@ -90,10 +90,6 @@ impl<'a> ResolvedObject<'a> {
 
         Ok(result)
     }
-
-    pub fn is_unlisted(&self) -> bool {
-        self.object.unlisted_key.is_some()
-    }
 }
 
 #[derive(Clone, Debug)]

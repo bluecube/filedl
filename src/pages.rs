@@ -99,7 +99,7 @@ async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
 #[get("/download")]
 async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(
-        templates::DirListing::new_wrapped(&app, "", false, app.list_objects().await?)
+        templates::DirListing::new_wrapped(&app, "", None, app.list_objects().await?)
             .into_string()?,
     ))
 }
@@ -128,15 +128,9 @@ async fn download_object(
             ItemType::Directory => match query.mode {
                 DownloadMode::Default => {
                     let items = resolved_object.list().await?;
-                    dir_listing(
-                        &app,
-                        &object_path,
-                        query.key.as_deref(),
-                        resolved_object.is_unlisted(),
-                        items,
-                    )
-                    .await
-                    .map(Either::Right)
+                    dir_listing(&app, &object_path, query.key.as_deref(), items)
+                        .await
+                        .map(Either::Right)
                 }
                 DownloadMode::Download => Err(FiledlError::UnimplementedZipDownload),
                 DownloadMode::Internal => unreachable!("Was handled before"),
@@ -207,15 +201,13 @@ async fn dir_listing(
     app: &AppData,
     object_path: &str,
     query_key: Option<&str>,
-    is_unlisted: bool,
     items: Vec<DirListingItem>,
 ) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok()
         .content_type(mime::TEXT_HTML_UTF_8)
         .insert_header(cache_control(None))
         .body(
-            templates::DirListing::new_wrapped(app, object_path, is_unlisted, items)
-                .into_string()?,
+            templates::DirListing::new_wrapped(app, object_path, query_key, items).into_string()?,
         ))
 }
 

@@ -18,7 +18,7 @@ pub struct DirListing<'a> {
     display_timezone: &'a Tz,
     directory_path: &'a str,
     static_content_hash: &'a str,
-    is_unlisted: bool,
+    unlisted_key: Option<&'a str>,
     items: Vec<DirListingItem>,
 }
 
@@ -26,7 +26,7 @@ impl<'a> DirListing<'a> {
     pub fn new_wrapped(
         app: &'a AppData,
         directory_path: &'a str,
-        unlisted: bool,
+        unlisted_key: Option<&'a str>,
         mut items: Vec<DirListingItem>,
     ) -> Page<'a, Title<'a>, DirListing<'a>> {
         let mut collator = feruca::Collator::default();
@@ -38,7 +38,7 @@ impl<'a> DirListing<'a> {
             display_timezone: app.get_display_timezone(),
             directory_path,
             static_content_hash: app.get_static_content_hash(),
-            is_unlisted: unlisted,
+            unlisted_key,
             items,
         };
         Page {
@@ -49,11 +49,17 @@ impl<'a> DirListing<'a> {
             display_timezone: app.get_display_timezone(),
         }
     }
+
     fn render_breadcrumbs(&self, tmpl: &mut TemplateBuffer<'_>) {
+        let (key1, key2) = if let Some(key) = self.unlisted_key {
+            ("?key=", key)
+        } else {
+            ("", "")
+        };
         tmpl << html!(
             @ for crumb in BreadcrumbsIterator::new(self.directory_path) {
                 : "/";
-                a(href = format_args!("{}/{}", self.download_base_url, url_encode(crumb.link_url))): crumb.name;
+                a(href = format_args!("{}/{}{}{}", self.download_base_url, url_encode(crumb.link_url), key1, key2)): crumb.name;
             }
         );
     }
@@ -134,7 +140,7 @@ impl<'a> RenderOnce for DirListing<'a> {
                         img(src = self.asset_url("home.svg"), alt = "Home", title = "Home");
                     }
                     |tmpl| self.render_breadcrumbs(tmpl);
-                    @ if self.is_unlisted {
+                    @ if self.unlisted_key.is_some() {
                         img(src = self.asset_url("hidden.svg"), class = "unlisted", alt = "unlisted directory", title = "unlisted directory");
                     }
                 }
@@ -197,7 +203,7 @@ struct ItemUrl<'a> {
     download_base_url: &'a str,
     directory_path: &'a str,
     item_name: &'a str,
-    unlisted_key: &'a str,
+    unlisted_key: Option<&'a str>,
 }
 
 impl<'a> Display for ItemUrl<'a> {
@@ -207,8 +213,8 @@ impl<'a> Display for ItemUrl<'a> {
             write!(f, "{}/", url_encode(self.directory_path))?;
         }
         write!(f, "{}", url_encode(self.item_name))?;
-        if !self.unlisted_key.is_empty() {
-            write!(f, "?unlisted_key={}", self.unlisted_key)?;
+        if let Some(unlisted_key) = self.unlisted_key {
+            write!(f, "?key={}", unlisted_key)?;
         }
 
         Ok(())
@@ -227,7 +233,7 @@ impl<'a> ItemUrl<'a> {
             download_base_url: dl.download_base_url,
             directory_path: dl.directory_path,
             item_name: &item.name,
-            unlisted_key: "",
+            unlisted_key: dl.unlisted_key,
         }
     }
 
@@ -240,10 +246,10 @@ impl<'a> ItemUrl<'a> {
     }
 
     fn next_qs_separator(&self) -> char {
-        if self.unlisted_key.is_empty() {
-            '?'
-        } else {
+        if self.unlisted_key.is_some() {
             '&'
+        } else {
+            '?'
         }
     }
 }

@@ -49,7 +49,7 @@ function openGallery() {
 function closeGallery() {
     document.removeEventListener("keydown", keydown);
     closeGalleryNoHistory();
-    history.pushState(null, "", window.location.pathname);
+    history.pushState(null, "", window.location.pathname + window.location.search);
 }
 
 function closeGalleryNoHistory() {
