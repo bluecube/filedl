@@ -1,4 +1,4 @@
-use crate::error::Result;
+use crate::{error::Result, util::simple_spawn_blocking};
 use actix_web::web::Bytes;
 use image::{
     imageops, DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Pixel, Rgb, RgbImage,
@@ -13,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
     time::SystemTime,
 };
-use tokio::{sync::Mutex, task::spawn_blocking};
+use tokio::sync::Mutex;
 
 /// Describes a cached rendered thumbnail
 #[derive(Hash, Debug, PartialEq, Eq)]
@@ -123,23 +123,13 @@ impl CachedThumbnails {
 
         // Here we pass the path through the closure, so that the compiler understands
         // that it will live long enough.
-        let join_result = spawn_blocking(move || {
+
+        let (thumbnail, path) = simple_spawn_blocking(move || {
             let path = key.path;
             let thumbnail = create_thumbnail(&path, size);
             (thumbnail, path)
         })
         .await;
-
-        let (thumbnail, path) = match join_result {
-            Ok(x) => x,
-            Err(e) => {
-                if let Ok(reason) = e.try_into_panic() {
-                    std::panic::resume_unwind(reason)
-                } else {
-                    unreachable!("We never cancel the join handle.")
-                }
-            }
-        };
 
         key.path = path;
         let thumbnail = thumbnail?;
