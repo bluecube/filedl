@@ -264,7 +264,7 @@ impl<'a> Display for ThumbnailUrl<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.item)?;
         f.write_char(self.item.next_qs_separator())?;
-        write!(f, "mode=thumb{}", self.resolution)?;
+        write!(f, "mode=thumbnail&size={}", self.resolution)?;
         if let Some(hash) = self.cache_hash {
             write!(f, "&cache_hash={:08x}", hash)?;
         }

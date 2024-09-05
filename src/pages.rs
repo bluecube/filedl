@@ -26,9 +26,7 @@ enum DownloadMode {
     Default,
     Internal,
     Download,
-    Thumb64,
-    Thumb128,
-    Thumb256,
+    Thumbnail,
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,6 +34,8 @@ struct DownloadQuery {
     key: Option<String>,
     #[serde(default)]
     mode: DownloadMode,
+    #[serde(default)]
+    size: u16,
     #[serde(default)]
     cache_hash: Option<String>,
 }
@@ -143,18 +143,13 @@ async fn download_object(
                 DownloadMode::Download => {
                     file_download(resolved_object, true).await.map(Either::Left)
                 }
-                DownloadMode::Thumb64 => {
-                    thumb_download(resolved_object, 64, query.cache_hash.as_deref())
-                        .await
-                        .map(Either::Right)
-                }
-                DownloadMode::Thumb128 => {
-                    thumb_download(resolved_object, 128, query.cache_hash.as_deref())
-                        .await
-                        .map(Either::Right)
-                }
-                DownloadMode::Thumb256 => {
-                    thumb_download(resolved_object, 256, query.cache_hash.as_deref())
+                DownloadMode::Thumbnail => {
+                    let size = match query.size {
+                        n if n <= 64 => 64,
+                        n if n <= 128 => 128,
+                        _ => 256,
+                    };
+                    thumb_download(resolved_object, size, query.cache_hash.as_deref())
                         .await
                         .map(Either::Right)
                 }
