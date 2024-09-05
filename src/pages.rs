@@ -2,16 +2,18 @@ use crate::{
     app_data::{AppData, DirListingItem, ItemType, ResolvedObject},
     error::{FiledlError, Result},
     templates,
+    thumbnails::ThumbnailType,
 };
 use actix_files::NamedFile;
 use actix_web::{
     get,
     http::{header, StatusCode},
-    routes, web,
-    web::Redirect,
-    Either, HttpResponse, Responder, ResponseError,
+    routes,
+    web::{self, Redirect},
+    Either, HttpRequest, HttpResponse, Responder, ResponseError,
 };
 use horrorshow::Template as _;
+use memchr::memmem;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -36,6 +38,8 @@ struct DownloadQuery {
     mode: DownloadMode,
     #[serde(default)]
     size: u16,
+    #[serde(default)]
+    thumbnail_type: ThumbnailType,
     #[serde(default)]
     cache_hash: Option<String>,
 }
@@ -96,11 +100,29 @@ async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
     HttpResponse::Ok().json(app.get_thumbnail_cache_stats().await)
 }
 
+fn select_thumbnail_type(req: &HttpRequest) -> ThumbnailType {
+    if req
+        .headers()
+        .get(header::ACCEPT)
+        .is_some_and(|value| memmem::find(value.as_bytes(), b"image/avif").is_some())
+    {
+        ThumbnailType::Avif
+    } else {
+        ThumbnailType::Jpeg
+    }
+}
+
 #[get("/download")]
-async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
+async fn download_root(app: web::Data<Arc<AppData>>, req: HttpRequest) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(
-        templates::DirListing::new_wrapped(&app, "", None, app.list_objects().await?)
-            .into_string()?,
+        templates::DirListing::new_wrapped(
+            &app,
+            "",
+            None,
+            select_thumbnail_type(&req),
+            app.list_objects().await?,
+        )
+        .into_string()?,
     ))
 }
 
@@ -109,6 +131,7 @@ async fn download_object(
     app: web::Data<Arc<AppData>>,
     path: web::Path<String>,
     query: web::Query<DownloadQuery>,
+    req: HttpRequest,
 ) -> Result<Either<NamedFile, HttpResponse>> {
     let object_path = path.into_inner();
     if query.mode == DownloadMode::Internal {
@@ -128,9 +151,15 @@ async fn download_object(
             ItemType::Directory => match query.mode {
                 DownloadMode::Default => {
                     let items = resolved_object.list().await?;
-                    dir_listing(&app, &object_path, query.key.as_deref(), items)
-                        .await
-                        .map(Either::Right)
+                    dir_listing(
+                        &app,
+                        &object_path,
+                        query.key.as_deref(),
+                        select_thumbnail_type(&req),
+                        items,
+                    )
+                    .await
+                    .map(Either::Right)
                 }
                 DownloadMode::Download => Err(FiledlError::UnimplementedZipDownload),
                 DownloadMode::Internal => unreachable!("Was handled before"),
@@ -149,9 +178,14 @@ async fn download_object(
                         n if n <= 128 => 128,
                         _ => 256,
                     };
-                    thumb_download(resolved_object, size, query.cache_hash.as_deref())
-                        .await
-                        .map(Either::Right)
+                    thumb_download(
+                        resolved_object,
+                        size,
+                        query.cache_hash.as_deref(),
+                        query.thumbnail_type,
+                    )
+                    .await
+                    .map(Either::Right)
                 }
                 DownloadMode::Internal => unreachable!("Was handled before"),
             },
@@ -178,10 +212,13 @@ async fn thumb_download<'a>(
     resolved_object: ResolvedObject<'a>,
     size: u32,
     cache_hash: Option<&str>,
+    thumbnail_type: ThumbnailType,
 ) -> Result<HttpResponse> {
-    let (thumb, hash) = resolved_object.into_thumbnail((size, size)).await?;
+    let (thumb, hash) = resolved_object
+        .into_thumbnail((size, size), thumbnail_type)
+        .await?;
     Ok(HttpResponse::Ok()
-        .insert_header(header::ContentType(mime::IMAGE_JPEG))
+        .insert_header(header::ContentType(thumbnail_type.mime()))
         .insert_header(header::ETag(header::EntityTag::new_strong(hash)))
         .insert_header(cache_control(cache_hash))
         .body(thumb))
@@ -196,13 +233,15 @@ async fn dir_listing(
     app: &AppData,
     object_path: &str,
     query_key: Option<&str>,
+    thumbnail_type: ThumbnailType,
     items: Vec<DirListingItem>,
 ) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok()
         .content_type(mime::TEXT_HTML_UTF_8)
         .insert_header(cache_control(None))
         .body(
-            templates::DirListing::new_wrapped(app, object_path, query_key, items).into_string()?,
+            templates::DirListing::new_wrapped(app, object_path, query_key, thumbnail_type, items)
+                .into_string()?,
         ))
 }
 

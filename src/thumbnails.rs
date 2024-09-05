@@ -4,8 +4,10 @@ use image::{
     imageops, DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Pixel, Rgb, RgbImage,
 };
 use lru::LruCache;
-use serde::Serialize;
+use mime::Mime;
+use serde::{Deserialize, Serialize};
 use std::{
+    fmt::Display,
     fs::Metadata,
     hash::{Hash, Hasher},
     io::Cursor,
@@ -26,10 +28,17 @@ struct CacheKey {
     // Properties of the final thumbnail
     width: u32,
     height: u32,
+
+    thumbnail_type: ThumbnailType,
 }
 
 impl CacheKey {
-    fn new(path: PathBuf, metadata: &Metadata, size: (u32, u32)) -> Self {
+    fn new(
+        path: PathBuf,
+        metadata: &Metadata,
+        size: (u32, u32),
+        thumbnail_type: ThumbnailType,
+    ) -> Self {
         CacheKey {
             path,
             size: metadata.len(),
@@ -37,6 +46,8 @@ impl CacheKey {
 
             width: size.0,
             height: size.1,
+
+            thumbnail_type,
         }
     }
 
@@ -72,6 +83,36 @@ struct Locked {
     wasted_creation_rate: HitRate,
 }
 
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum ThumbnailType {
+    #[default]
+    Jpeg,
+    Avif,
+}
+
+impl Display for ThumbnailType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.serialize(f)
+    }
+}
+
+impl ThumbnailType {
+    pub fn mime(&self) -> Mime {
+        match self {
+            ThumbnailType::Jpeg => mime::IMAGE_JPEG,
+            ThumbnailType::Avif => "image/avif".parse().unwrap(),
+        }
+    }
+
+    fn image_output_format(&self) -> image::ImageOutputFormat {
+        match self {
+            ThumbnailType::Jpeg => image::ImageOutputFormat::Jpeg(85),
+            ThumbnailType::Avif => image::ImageOutputFormat::Avif,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct CachedThumbnails {
     locked: Mutex<Locked>,
@@ -105,9 +146,11 @@ impl CachedThumbnails {
         file: PathBuf,
         metadata: &Metadata,
         size: (u32, u32),
+        thumbnail_type: ThumbnailType,
     ) -> Result<(Bytes, String)> {
-        let mut key = CacheKey::new(file, metadata, size); // Must be mutable because of the
-                                                           // spawn_blocking trick below
+        // Must be mutable because of the spawn_blocking trick below
+        let mut key = CacheKey::new(file, metadata, size, thumbnail_type);
+
         let hash = key.hash_string();
         {
             let mut locked = self.locked.lock().await;
@@ -126,7 +169,7 @@ impl CachedThumbnails {
 
         let (thumbnail, path) = simple_spawn_blocking(move || {
             let path = key.path;
-            let thumbnail = create_thumbnail(&path, size);
+            let thumbnail = create_thumbnail(&path, size, thumbnail_type);
             (thumbnail, path)
         })
         .await;
@@ -174,7 +217,11 @@ impl CachedThumbnails {
     }
 }
 
-pub fn create_thumbnail(file: &Path, size: (u32, u32)) -> Result<Bytes> {
+pub fn create_thumbnail(
+    file: &Path,
+    size: (u32, u32),
+    thumbnail_type: ThumbnailType,
+) -> Result<Bytes> {
     let img = open_image(file)?;
     let orientation = get_orientation(file)?;
 
@@ -189,7 +236,7 @@ pub fn create_thumbnail(file: &Path, size: (u32, u32)) -> Result<Bytes> {
     let mut bytes: Vec<u8> = Vec::new();
     resized_and_reoriented.write_to(
         &mut Cursor::new(&mut bytes),
-        image::ImageOutputFormat::Jpeg(85),
+        thumbnail_type.image_output_format(),
     )?;
     Ok(bytes.into())
 }

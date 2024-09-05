@@ -3,7 +3,7 @@ use crate::{
     error::{FiledlError, Result},
     storage::Storage,
     templates::util::url_encode,
-    thumbnails::{is_thumbnailable, CacheStats, CachedThumbnails},
+    thumbnails::{is_thumbnailable, CacheStats, CachedThumbnails, ThumbnailType},
 };
 use actix_web::web::Bytes;
 use chrono::{DateTime, Utc};
@@ -74,8 +74,14 @@ impl<'a> ResolvedObject<'a> {
         ItemType::new(&self.path, &self.metadata)
     }
 
-    pub async fn into_thumbnail(self, size: (u32, u32)) -> Result<(Bytes, String)> {
-        self.thumbnails.get(self.path, &self.metadata, size).await
+    pub async fn into_thumbnail(
+        self,
+        size: (u32, u32),
+        thumbnail_type: ThumbnailType,
+    ) -> Result<(Bytes, String)> {
+        self.thumbnails
+            .get(self.path, &self.metadata, size, thumbnail_type)
+            .await
     }
 
     pub async fn list(&self) -> Result<Vec<DirListingItem>> {

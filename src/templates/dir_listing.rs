@@ -10,7 +10,10 @@ use chrono_tz::Tz;
 use horrorshow::{html, labels_sep_by, RenderOnce, TemplateBuffer};
 use humansize::{format_size, BINARY};
 
-use crate::app_data::{AppData, DirListingItem, ItemType};
+use crate::{
+    app_data::{AppData, DirListingItem, ItemType},
+    thumbnails::ThumbnailType,
+};
 
 pub struct DirListing<'a> {
     app_name: &'a str,
@@ -19,6 +22,7 @@ pub struct DirListing<'a> {
     directory_path: &'a str,
     static_content_hash: &'a str,
     unlisted_key: Option<&'a str>,
+    thumbnail_type: ThumbnailType,
     items: Vec<DirListingItem>,
 }
 
@@ -27,6 +31,7 @@ impl<'a> DirListing<'a> {
         app: &'a AppData,
         directory_path: &'a str,
         unlisted_key: Option<&'a str>,
+        thumbnail_type: ThumbnailType,
         mut items: Vec<DirListingItem>,
     ) -> Page<'a, Title<'a>, DirListing<'a>> {
         let mut collator = feruca::Collator::default();
@@ -39,6 +44,7 @@ impl<'a> DirListing<'a> {
             directory_path,
             static_content_hash: app.get_static_content_hash(),
             unlisted_key,
+            thumbnail_type,
             items,
         };
         Page {
@@ -72,12 +78,12 @@ impl<'a> DirListing<'a> {
                     @ if item.item_type.is_thumbnailable() {
                         img(
                             class = "thumbnail",
-                            src = url.thumbnail(64, None),
+                            src = url.thumbnail(64, self.thumbnail_type, None),
                             srcset = labels_sep_by!(
                                 ",";
-                                format_args!("{} {}w", url.thumbnail(64, None), 64),
-                                format_args!("{} {}w", url.thumbnail(128, None), 128),
-                                format_args!("{} {}w", url.thumbnail(256, None), 256)
+                                format_args!("{} {}w", url.thumbnail(64, self.thumbnail_type, None), 64),
+                                format_args!("{} {}w", url.thumbnail(128, self.thumbnail_type, None), 128),
+                                format_args!("{} {}w", url.thumbnail(256, self.thumbnail_type, None), 256)
                             ),
                             sizes = "4em",
                             loading = "lazy"
@@ -237,10 +243,16 @@ impl<'a> ItemUrl<'a> {
         }
     }
 
-    fn thumbnail(&self, resolution: u32, cache_hash: Option<u64>) -> ThumbnailUrl<'a> {
+    fn thumbnail(
+        &self,
+        resolution: u32,
+        thumbnail_type: ThumbnailType,
+        cache_hash: Option<u64>,
+    ) -> ThumbnailUrl<'a> {
         ThumbnailUrl {
             item: self.clone(),
             resolution,
+            thumbnail_type,
             cache_hash,
         }
     }
@@ -257,6 +269,7 @@ impl<'a> ItemUrl<'a> {
 struct ThumbnailUrl<'a> {
     item: ItemUrl<'a>,
     resolution: u32,
+    thumbnail_type: ThumbnailType,
     cache_hash: Option<u64>,
 }
 
@@ -264,7 +277,11 @@ impl<'a> Display for ThumbnailUrl<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.item)?;
         f.write_char(self.item.next_qs_separator())?;
-        write!(f, "mode=thumbnail&size={}", self.resolution)?;
+        write!(
+            f,
+            "mode=thumbnail&size={}&thumbnail_type={}",
+            self.resolution, self.thumbnail_type
+        )?;
         if let Some(hash) = self.cache_hash {
             write!(f, "&cache_hash={:08x}", hash)?;
         }
