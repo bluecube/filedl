@@ -1,7 +1,7 @@
-FROM rust:alpine AS builder
+FROM rust:1.81-alpine AS builder
 ARG RUSTFLAGS
 
-RUN apk add musl-dev
+RUN apk add musl-dev nasm
 
 RUN cargo new /app/
 WORKDIR /app/
