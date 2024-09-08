@@ -1,8 +1,8 @@
 use std::{
     env,
-    fs::File,
-    io::{Read, Write},
-    path::Path,
+    fs::{create_dir_all, read, write, File},
+    io::{Cursor, Write},
+    path::{Path, PathBuf},
 };
 
 use anyhow::anyhow;
@@ -17,7 +17,7 @@ fn main() {
 }
 
 fn process_assets(source_dir: &Path, dest_dir: &Path) -> anyhow::Result<()> {
-    std::fs::create_dir_all(&dest_dir).unwrap();
+    create_dir_all(&dest_dir).unwrap();
 
     println!("cargo::rerun-if-changed={}", source_dir.display());
 
@@ -32,40 +32,37 @@ fn assets(name: &str) -> Option<(&'static [u8], mime::Mime)> {{
     )?;
 
     for entry in WalkDir::new(source_dir) {
-        let entry = entry.unwrap();
+        let entry = entry?;
         if !entry.file_type().is_file() {
             continue;
         }
 
-        let path = entry.path();
-
+        let path = entry.into_path();
+        let name = path.strip_prefix(source_dir)?;
         let ext = path.extension().and_then(|ext| ext.to_str());
 
-        let dest = dest_dir.join(path.strip_prefix(source_dir)?);
-        let mut reference_path = path.to_owned();
-
-        let (generated, mime) = match ext {
-            Some("js") => {
-                minify_js(path, &dest)?;
-                (true, "APPLICATION_JAVASCRIPT_UTF_8")
-            }
-            Some("scss") => {
-                compile_scss(path, &dest.with_extension("css"))?;
-                reference_path.set_extension("css");
-                (true, "TEXT_CSS")
-            }
-            Some("svg") => (false, "IMAGE_SVG"),
-            _ => (false, "APPLICATION_OCTET_STREAM"),
+        let (converted_name, content, mime) = match ext {
+            Some("js") => minify_js(&path, name)?,
+            Some("scss") => compile_scss(&path, name)?,
+            Some("svg") => copied_asset(&path, name, "IMAGE_SVG")?,
+            _ => copied_asset(&path, name, "APPLICATION_OCTET_STREAM")?,
         };
+
+        let dest_path = dest_dir.join(&converted_name);
+        write(&dest_path, &content)?;
 
         write!(
             assets_rs,
-            "        \"{}\" => Some((include_bytes!(concat!(env!(\"{}\"), \"/{}\")).as_slice(), mime::{})),\n",
-            reference_path.strip_prefix(source_dir)?.display(),
-            if generated { "OUT_DIR" } else { "CARGO_MANIFEST_DIR" },
-            reference_path.display(),
-            mime
+            "        \"{}\" => Some((\n",
+            converted_name.display(),
         )?;
+        write!(
+            assets_rs,
+            "            include_bytes!(concat!(env!(\"OUT_DIR\"), \"/assets/{}\")).as_slice(),\n",
+            converted_name.display(),
+        )?;
+        write!(assets_rs, "            mime::{}\n", mime)?;
+        write!(assets_rs, "        )),\n",)?;
     }
 
     write!(assets_rs, "        _ => None\n    }}\n}}\n")?;
@@ -73,14 +70,28 @@ fn assets(name: &str) -> Option<(&'static [u8], mime::Mime)> {{
     Ok(())
 }
 
-fn minify_js(source: &Path, dest: &Path) -> anyhow::Result<()> {
+fn add_extension(path: &Path, extension: &str) -> PathBuf {
+    // Create a new PathBuf from the original path
+    let mut new_path = path.to_path_buf();
+
+    // Extract the OsString from the file stem
+    if let Some(file_name) = new_path.file_name() {
+        let mut new_file_name = file_name.to_os_string();
+        // Add the new extension
+        new_file_name.push(extension);
+        // Set the new file name back to the new PathBuf
+        new_path.set_file_name(new_file_name);
+    } else {
+        new_path.push(extension);
+    }
+
+    new_path
+}
+
+fn minify_js(source: &Path, name: &Path) -> anyhow::Result<(PathBuf, Vec<u8>, &'static str)> {
     use minify_js::{minify, Session};
 
-    let mut source = File::open(source).unwrap();
-    let mut source_buf = Vec::new();
-    source.read_to_end(&mut source_buf).unwrap();
-    let source_buf = source_buf;
-    drop(source);
+    let source_buf = read(source)?;
 
     let mut target_buf = Vec::new();
     minify(
@@ -91,13 +102,14 @@ fn minify_js(source: &Path, dest: &Path) -> anyhow::Result<()> {
     )
     .map_err(|e| anyhow!("{}", e))?;
 
-    let mut dest = File::create(dest).unwrap();
-    dest.write_all(&target_buf).unwrap();
-
-    Ok(())
+    Ok((
+        name.to_path_buf(),
+        target_buf,
+        "APPLICATION_JAVASCRIPT_UTF_8",
+    ))
 }
 
-fn compile_scss(source: &Path, dest: &Path) -> anyhow::Result<()> {
+fn compile_scss(source: &Path, name: &Path) -> anyhow::Result<(PathBuf, Vec<u8>, &'static str)> {
     use css_minify::optimizations::{Level, Minifier};
     use grass::{Options, OutputStyle};
 
@@ -108,8 +120,17 @@ fn compile_scss(source: &Path, dest: &Path) -> anyhow::Result<()> {
         .minify(&compiled, Level::Two)
         .map_err(|e| anyhow!("{}", e))?;
 
-    let mut dest = File::create(dest)?;
-    dest.write_all(&minified.into_bytes())?;
+    Ok((
+        name.with_extension("css"),
+        minified.into_bytes(),
+        "TEXT_CSS",
+    ))
+}
 
-    Ok(())
+fn copied_asset(
+    source: &Path,
+    name: &Path,
+    mime: &'static str,
+) -> anyhow::Result<(PathBuf, Vec<u8>, &'static str)> {
+    Ok((name.to_path_buf(), read(source)?, mime))
 }
