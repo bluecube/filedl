@@ -16,7 +16,7 @@ impl<'a, T: RenderOnce, C: RenderOnce> RenderOnce for Page<'a, T, C> {
     fn render_once(self, tmpl: &mut TemplateBuffer<'_>) {
         tmpl << html!(
             : doctype::HTML;
-            html {
+            html(lang = "en") {
                 head {
                     meta(
                         name = "viewport", content="width=device-width, initial-scale=1"
