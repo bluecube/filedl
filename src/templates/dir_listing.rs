@@ -86,7 +86,8 @@ impl<'a> DirListing<'a> {
                                 format_args!("{} {}w", url.thumbnail(256, self.thumbnail_type, None), 256)
                             ),
                             sizes = "4em",
-                            loading = "lazy"
+                            loading = "lazy",
+                            alt = ""
                         );
                     }
                     @ if !item.item_type.is_thumbnailable() {
@@ -96,7 +97,8 @@ impl<'a> DirListing<'a> {
                                 ItemType::Image => self.asset_url("image.svg"),
                                 ItemType::Directory => self.asset_url("directory.svg"),
                                 _ => self.asset_url("file.svg"),
-                            }
+                            },
+                            alt = ""
                         );
                     }
                     span(class = "underlined") {
