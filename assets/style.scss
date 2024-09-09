@@ -306,6 +306,10 @@ time .separator {
     transition: opacity 0.5s ease;
 }
 
+body.gallery-visible {
+    overflow: hidden;
+}
+
 
 @keyframes progress-bounce {
     from {
