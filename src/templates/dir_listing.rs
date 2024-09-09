@@ -138,6 +138,7 @@ impl<'a> DirListing<'a> {
 
 impl<'a> RenderOnce for DirListing<'a> {
     fn render_once(self, tmpl: &mut horrorshow::prelude::TemplateBuffer<'_>) {
+        let self_url = ItemUrl::without_item(&self);
         tmpl << html!(
             nav {
                 @ if !self.app_name.is_empty() {
@@ -164,9 +165,9 @@ impl<'a> RenderOnce for DirListing<'a> {
                         div(class = "download-all") {
                             a (
                                 href = format_args!(
-                                    "{}/{}?mode=download",
-                                    self.download_base_url,
-                                    url_encode(self.directory_path)
+                                    "{}{}mode=download",
+                                    self_url,
+                                    self_url.next_qs_separator(),
                                 )
                             ) {
                               : "Download all";
@@ -216,11 +217,13 @@ struct ItemUrl<'a> {
 
 impl<'a> Display for ItemUrl<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/", self.download_base_url)?;
+        write!(f, "{}", self.download_base_url)?;
         if !self.directory_path.is_empty() {
-            write!(f, "{}/", url_encode(self.directory_path))?;
+            write!(f, "/{}", url_encode(self.directory_path))?;
         }
-        write!(f, "{}", url_encode(self.item_name))?;
+        if !self.item_name.is_empty() {
+            write!(f, "/{}", url_encode(self.item_name))?;
+        }
         if let Some(unlisted_key) = self.unlisted_key {
             write!(f, "?key={}", unlisted_key)?;
         }
@@ -241,6 +244,15 @@ impl<'a> ItemUrl<'a> {
             download_base_url: dl.download_base_url,
             directory_path: dl.directory_path,
             item_name: &item.name,
+            unlisted_key: dl.unlisted_key,
+        }
+    }
+
+    fn without_item(dl: &'a DirListing) -> Self {
+        ItemUrl {
+            download_base_url: dl.download_base_url,
+            directory_path: dl.directory_path,
+            item_name: "",
             unlisted_key: dl.unlisted_key,
         }
     }
