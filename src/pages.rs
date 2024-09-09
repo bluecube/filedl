@@ -44,6 +44,12 @@ struct DownloadQuery {
     cache_hash: Option<String>,
 }
 
+#[derive(Debug)]
+enum ContentEncoding {
+    Identity,
+    Brotli,
+}
+
 const CACHE_CONTROL_IMMUTABLE: (&'static str, &'static str) = (
     "Cache-Control",
     "max-age=31536000, immutable", // 1 year
@@ -112,6 +118,18 @@ fn select_thumbnail_type(req: &HttpRequest) -> ThumbnailType {
     }
 }
 
+fn select_content_encoding(req: &HttpRequest) -> ContentEncoding {
+    if req
+        .headers()
+        .get(header::ACCEPT_ENCODING)
+        .is_some_and(|value| memmem::find(value.as_bytes(), b"br").is_some())
+    {
+        ContentEncoding::Brotli
+    } else {
+        ContentEncoding::Identity
+    }
+}
+
 #[get("/download")]
 async fn download_root(app: web::Data<Arc<AppData>>, req: HttpRequest) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(
@@ -135,13 +153,7 @@ async fn download_object(
 ) -> Result<Either<NamedFile, HttpResponse>> {
     let object_path = path.into_inner();
     if query.mode == DownloadMode::Assets {
-        let (content, ct) = assets(&object_path).ok_or(FiledlError::ObjectNotFound)?;
-        Ok(Either::Right(
-            HttpResponse::Ok()
-                .insert_header(header::ContentType(ct))
-                .insert_header(CACHE_CONTROL_IMMUTABLE)
-                .body(content),
-        ))
+        asset_download(&object_path, &req).map(Either::Right)
     } else {
         let resolved_object = app
             .resolve_object(object_path.as_str(), query.key.as_deref())
@@ -227,6 +239,22 @@ async fn thumb_download<'a>(
     // recompute the thumbnail unless necessary (if client has the image cached, but
     // is unsure about the validity, and we don't have it cached any more)
     // TODO: Proper browser caching control
+}
+
+fn asset_download(object_path: &str, req: &HttpRequest) -> Result<HttpResponse> {
+    let (content, brotli_content, ct) = assets(&object_path).ok_or(FiledlError::ObjectNotFound)?;
+
+    let mut response_builder = HttpResponse::Ok();
+    response_builder
+        .insert_header(header::ContentType(ct))
+        .insert_header(CACHE_CONTROL_IMMUTABLE);
+
+    Ok(match select_content_encoding(req) {
+        ContentEncoding::Identity => response_builder.body(content),
+        ContentEncoding::Brotli => response_builder
+            .insert_header(header::ContentEncoding::Brotli)
+            .body(brotli_content),
+    })
 }
 
 async fn dir_listing(

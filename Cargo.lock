@@ -957,6 +957,7 @@ dependencies = [
  "actix-web",
  "anyhow",
  "assert2",
+ "brotli",
  "chrono",
  "chrono-tz",
  "clap",

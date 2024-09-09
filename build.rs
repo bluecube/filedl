@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use brotli::{enc::BrotliEncoderParams, BrotliCompress};
 use walkdir::WalkDir;
 
 fn main() {
@@ -26,7 +27,7 @@ fn process_assets(source_dir: &Path, dest_dir: &Path) -> anyhow::Result<()> {
     write!(
         assets_rs,
         r#"
-fn assets(name: &str) -> Option<(&'static [u8], mime::Mime)> {{
+fn assets(name: &str) -> Option<(&'static [u8], &'static [u8], mime::Mime)> {{
     match name {{
 "#
     )?;
@@ -51,6 +52,9 @@ fn assets(name: &str) -> Option<(&'static [u8], mime::Mime)> {{
         let dest_path = dest_dir.join(&converted_name);
         write(&dest_path, &content)?;
 
+        let dest_compressed_path = add_extension(&dest_path, ".br");
+        brotli_compress(&content, &dest_compressed_path)?;
+
         write!(
             assets_rs,
             "        \"{}\" => Some((\n",
@@ -59,6 +63,11 @@ fn assets(name: &str) -> Option<(&'static [u8], mime::Mime)> {{
         write!(
             assets_rs,
             "            include_bytes!(concat!(env!(\"OUT_DIR\"), \"/assets/{}\")).as_slice(),\n",
+            converted_name.display(),
+        )?;
+        write!(
+            assets_rs,
+            "            include_bytes!(concat!(env!(\"OUT_DIR\"), \"/assets/{}.br\")).as_slice(),\n",
             converted_name.display(),
         )?;
         write!(assets_rs, "            mime::{}\n", mime)?;
@@ -133,4 +142,15 @@ fn copied_asset(
     mime: &'static str,
 ) -> anyhow::Result<(PathBuf, Vec<u8>, &'static str)> {
     Ok((name.to_path_buf(), read(source)?, mime))
+}
+
+fn brotli_compress(source: &[u8], dest: &Path) -> anyhow::Result<()> {
+    let mut dest = File::create(dest)?;
+    let mut params = BrotliEncoderParams::default();
+    params.quality = 11;
+    params.size_hint = source.len();
+
+    BrotliCompress(&mut Cursor::new(source), &mut dest, &params)?;
+
+    Ok(())
 }
