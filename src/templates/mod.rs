@@ -19,7 +19,7 @@ impl<'a> Display for AssetUrl<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{}/{}?mode=internal&cache_hash={}",
+            "{}/{}?mode=assets&cache_hash={}",
             self.download_base_url, self.file_name, self.cache_hash
         )
     }

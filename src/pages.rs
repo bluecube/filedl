@@ -26,7 +26,7 @@ pub const PROJECT_VERSION: &str = env!("CARGO_PKG_VERSION");
 enum DownloadMode {
     #[default]
     Default,
-    Internal,
+    Assets,
     Download,
     Thumbnail,
 }
@@ -134,7 +134,7 @@ async fn download_object(
     req: HttpRequest,
 ) -> Result<Either<NamedFile, HttpResponse>> {
     let object_path = path.into_inner();
-    if query.mode == DownloadMode::Internal {
+    if query.mode == DownloadMode::Assets {
         let (content, ct) = assets(&object_path).ok_or(FiledlError::ObjectNotFound)?;
         Ok(Either::Right(
             HttpResponse::Ok()
@@ -162,7 +162,7 @@ async fn download_object(
                     .map(Either::Right)
                 }
                 DownloadMode::Download => Err(FiledlError::UnimplementedZipDownload),
-                DownloadMode::Internal => unreachable!("Was handled before"),
+                DownloadMode::Assets => unreachable!("Was handled before"),
                 _ => Err(FiledlError::BadDownloadMode),
             },
             _ => match query.mode {
@@ -187,7 +187,7 @@ async fn download_object(
                     .await
                     .map(Either::Right)
                 }
-                DownloadMode::Internal => unreachable!("Was handled before"),
+                DownloadMode::Assets => unreachable!("Was handled before"),
             },
         }
     }
