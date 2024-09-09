@@ -22,6 +22,15 @@ impl<'a, T: RenderOnce, C: RenderOnce> RenderOnce for Page<'a, T, C> {
                         name = "viewport", content="width=device-width, initial-scale=1"
                     );
                     link(
+                        rel = "icon",
+                        href = self.asset_url("favicon.ico"),
+                        sizes = "32x32"
+                    );
+                    link(
+                        rel = "icon",
+                        href = self.asset_url("favicon.svg")
+                    );
+                    link(
                         rel = "stylesheet",
                         href = self.asset_url("style.css")
                     );
