@@ -22,13 +22,11 @@ use tokio::sync::Mutex;
 struct CacheKey {
     // First three arguments deal with the source file:
     path: PathBuf,
-    size: u64,
+    file_size: u64,
     modtime: Option<SystemTime>,
 
     // Properties of the final thumbnail
-    width: u32,
-    height: u32,
-
+    resolution: (u32, u32),
     thumbnail_type: ThumbnailType,
 }
 
@@ -36,17 +34,15 @@ impl CacheKey {
     fn new(
         path: PathBuf,
         metadata: &Metadata,
-        size: (u32, u32),
+        resolution: (u32, u32),
         thumbnail_type: ThumbnailType,
     ) -> Self {
         CacheKey {
             path,
-            size: metadata.len(),
+            file_size: metadata.len(),
             modtime: metadata.modified().ok(),
 
-            width: size.0,
-            height: size.1,
-
+            resolution,
             thumbnail_type,
         }
     }
@@ -145,11 +141,11 @@ impl CachedThumbnails {
         &self,
         file: PathBuf,
         metadata: &Metadata,
-        size: (u32, u32),
+        resolution: (u32, u32),
         thumbnail_type: ThumbnailType,
     ) -> Result<(Bytes, String)> {
         // Must be mutable because of the spawn_blocking trick below
-        let mut key = CacheKey::new(file, metadata, size, thumbnail_type);
+        let mut key = CacheKey::new(file, metadata, resolution, thumbnail_type);
 
         let hash = key.hash_string();
         {
@@ -169,7 +165,7 @@ impl CachedThumbnails {
 
         let (thumbnail, path) = simple_spawn_blocking(move || {
             let path = key.path;
-            let thumbnail = create_thumbnail(&path, size, thumbnail_type);
+            let thumbnail = create_thumbnail(&path, key.resolution, key.thumbnail_type);
             (thumbnail, path)
         })
         .await;
@@ -219,18 +215,18 @@ impl CachedThumbnails {
 
 pub fn create_thumbnail(
     file: &Path,
-    size: (u32, u32),
+    resolution: (u32, u32),
     thumbnail_type: ThumbnailType,
 ) -> Result<Bytes> {
     let img = open_image(file)?;
     let orientation = get_orientation(file)?;
 
     // TODO: Fix orientation for non-square non-centered crops
-    let crop_coords = crop_coordinates(img.dimensions(), size);
+    let crop_coords = crop_coordinates(img.dimensions(), resolution);
 
     // TODO: Don't hardcode background color
     let rgb_img = normalize_layers(img, [0xDA, 0xE1, 0xE4].into());
-    let resized = crop_and_resize(rgb_img, crop_coords, size);
+    let resized = crop_and_resize(rgb_img, crop_coords, resolution);
     let resized_and_reoriented = fix_orientation(resized, orientation);
 
     let mut bytes: Vec<u8> = Vec::new();

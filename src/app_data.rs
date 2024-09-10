@@ -76,11 +76,11 @@ impl<'a> ResolvedObject<'a> {
 
     pub async fn into_thumbnail(
         self,
-        size: (u32, u32),
+        resolution: (u32, u32),
         thumbnail_type: ThumbnailType,
     ) -> Result<(Bytes, String)> {
         self.thumbnails
-            .get(self.path, &self.metadata, size, thumbnail_type)
+            .get(self.path, &self.metadata, resolution, thumbnail_type)
             .await
     }
 
