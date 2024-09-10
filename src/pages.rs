@@ -37,7 +37,7 @@ struct DownloadQuery {
     #[serde(default)]
     mode: DownloadMode,
     #[serde(default)]
-    size: u16,
+    size: u32,
     #[serde(default)]
     thumbnail_type: ThumbnailType,
     #[serde(default)]
@@ -184,21 +184,14 @@ async fn download_object(
                 DownloadMode::Download => {
                     file_download(resolved_object, true).await.map(Either::Left)
                 }
-                DownloadMode::Thumbnail => {
-                    let size = match query.size {
-                        n if n <= 64 => 64,
-                        n if n <= 128 => 128,
-                        _ => 256,
-                    };
-                    thumb_download(
-                        resolved_object,
-                        size,
-                        query.cache_hash.as_deref(),
-                        query.thumbnail_type,
-                    )
-                    .await
-                    .map(Either::Right)
-                }
+                DownloadMode::Thumbnail => thumb_download(
+                    resolved_object,
+                    query.size,
+                    query.cache_hash.as_deref(),
+                    query.thumbnail_type,
+                )
+                .await
+                .map(Either::Right),
                 DownloadMode::Assets => unreachable!("Was handled before"),
             },
         }
@@ -226,6 +219,12 @@ async fn thumb_download<'a>(
     cache_hash: Option<&str>,
     thumbnail_type: ThumbnailType,
 ) -> Result<HttpResponse> {
+    let size = match size {
+        n if n <= 64 => 64,
+        n if n <= 128 => 128,
+        _ => 256,
+    };
+
     let (thumb, hash) = resolved_object
         .into_thumbnail((size, size), thumbnail_type)
         .await?;
