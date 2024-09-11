@@ -34,4 +34,12 @@ pub enum FiledlError {
         #[source]
         source: std::io::Error,
     },
+    #[error("Receiving thumbnail update failed: {source}")]
+    ThumbnailUpdateRecvError {
+        #[from]
+        #[source]
+        source: tokio::sync::broadcast::error::RecvError,
+    },
+    #[error("Thumbnail generation failed in other task")]
+    ThumbnailUpdateError,
 }

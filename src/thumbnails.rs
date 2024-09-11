@@ -1,5 +1,6 @@
 use crate::{error::Result, util::simple_spawn_blocking};
 use actix_web::web::Bytes;
+use assert2::assert;
 use image::{
     imageops, DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Pixel, Rgb, RgbImage,
 };
@@ -15,10 +16,10 @@ use std::{
     path::{Path, PathBuf},
     time::SystemTime,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex, MutexGuard};
 
 /// Describes a cached rendered thumbnail
-#[derive(Hash, Debug, PartialEq, Eq)]
+#[derive(Clone, Hash, Debug, PartialEq, Eq)]
 struct CacheKey {
     // First three arguments deal with the source file:
     path: PathBuf,
@@ -70,13 +71,28 @@ impl HitRate {
     }
 }
 
+/// Internal part of the thumbnail cache that is protected by the mutex.
 #[derive(Debug)]
 struct Locked {
-    cache: LruCache<CacheKey, Bytes>,
+    cache: LruCache<CacheKey, Option<Bytes>>,
     used_size: usize,
 
     hit_rate: HitRate,
-    wasted_creation_rate: HitRate,
+    waiting_rate: HitRate,
+}
+
+impl Locked {
+    /// Makes space in the cache for size bytes, so that the size of cached data is
+    /// less than or equal to max_size.
+    /// size must be less than or equal to max_size
+    fn make_space(&mut self, size: usize, max_size: usize) {
+        assert!(size <= max_size);
+
+        while self.used_size + size > max_size {
+            let (_, evicted_thumbnail) = self.cache.pop_lru().expect("cache should be non-empty");
+            self.used_size -= evicted_thumbnail.map_or(0, |t| t.len());
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -112,6 +128,7 @@ impl ThumbnailType {
 #[derive(Debug)]
 pub struct CachedThumbnails {
     locked: Mutex<Locked>,
+    updates: broadcast::Sender<(CacheKey, std::result::Result<Bytes, ()>)>,
     max_size: usize,
 }
 
@@ -121,18 +138,18 @@ pub struct CacheStats {
     pub used_size: usize,
     pub max_size: usize,
     pub hit_rate: f32,
-    pub wasted_creation_rate: f32,
 }
 
 impl CachedThumbnails {
     pub fn new(max_size: usize) -> Self {
         CachedThumbnails {
             locked: Mutex::new(Locked {
-                cache: LruCache::unbounded(),
+                cache: LruCache::unbounded(), // Cache size is managed manually, based on size, not count
                 used_size: 0,
                 hit_rate: HitRate { rate: 0.5 },
-                wasted_creation_rate: HitRate { rate: 0.5 },
+                waiting_rate: HitRate { rate: 0.0 },
             }),
+            updates: broadcast::Sender::new(8.max(num_cpus::get() * 2)),
             max_size,
         }
     }
@@ -145,60 +162,107 @@ impl CachedThumbnails {
         thumbnail_type: ThumbnailType,
     ) -> Result<(Bytes, String)> {
         // Must be mutable because of the spawn_blocking trick below
-        let mut key = CacheKey::new(file, metadata, resolution, thumbnail_type);
+        let key = CacheKey::new(file, metadata, resolution, thumbnail_type);
 
         let hash = key.hash_string();
         {
             let mut locked = self.locked.lock().await;
 
-            if let Some(thumbnail) = locked.cache.get(&key) {
-                let ret = Ok((Bytes::clone(thumbnail), hash));
-                locked.hit_rate.count(true);
-                return ret;
-            } else {
-                locked.hit_rate.count(false);
+            match locked.cache.get(&key) {
+                Some(Some(thumbnail)) => {
+                    // Found existing thumbnail
+                    let thumbnail = Bytes::clone(thumbnail);
+                    locked.hit_rate.count(true);
+                    locked.waiting_rate.count(false);
+
+                    Ok((thumbnail, hash))
+                }
+                Some(None) => {
+                    // Thumbnail is being created by other task
+                    locked.hit_rate.count(true);
+                    locked.waiting_rate.count(true);
+
+                    Ok((self.wait_for_thumbnail(key, locked).await?, hash))
+                }
+                None => {
+                    // Thumbnail is missing, we need to create it
+                    locked.hit_rate.count(false);
+                    locked.waiting_rate.count(false);
+
+                    Ok((self.create_and_cache_thumbnail(key, locked).await?, hash))
+                }
             }
         }
+    }
 
-        // Here we pass the path through the closure, so that the compiler understands
-        // that it will live long enough.
+    async fn wait_for_thumbnail<'a>(
+        &self,
+        key: CacheKey,
+        locked: MutexGuard<'a, Locked>,
+    ) -> Result<Bytes> {
+        // Subscribing the receiver while the lock is still held means the update will not
+        // happen before we're subscribed
+        let mut receiver = self.updates.subscribe();
+        drop(locked);
 
-        let (thumbnail, path) = simple_spawn_blocking(move || {
-            let path = key.path;
-            let thumbnail = create_thumbnail(&path, key.resolution, key.thumbnail_type);
-            (thumbnail, path)
-        })
-        .await;
-
-        key.path = path;
-        let thumbnail = thumbnail?;
-
-        if thumbnail.len() > self.max_size {
-            // If the file is larger than the cache, we couldn't keep the size condition anyway,
-            // so just return it without caching at all.
-            return Ok((thumbnail, hash));
+        loop {
+            let (updated_key, updated_result) = receiver.recv().await?;
+            if updated_key == key {
+                return updated_result.map_err(|_| crate::error::FiledlError::ThumbnailUpdateError);
+            }
         }
+    }
 
+    /// Create the thumbnail in a background task,
+    async fn create_and_cache_thumbnail<'a>(
+        &self,
+        key: CacheKey,
+        mut locked: MutexGuard<'a, Locked>,
+    ) -> Result<Bytes> {
+        // Write a placeholder into the cache.
+        assert!(
+            locked.cache.put(key.clone(), None).is_none(),
+            "At this point the guard is still locked, so we know we're not overwriting anything"
+        );
+        drop(locked);
+
+        let (thumbnail_result, key) = spawn_create_thumbnail(key).await;
+        self.store_cached_thumbnail(&key, &thumbnail_result).await;
+        self.send_thumbnail_update(key, &thumbnail_result);
+
+        thumbnail_result
+    }
+
+    fn send_thumbnail_update(&self, key: CacheKey, thumbnail_result: &Result<Bytes>) {
+        let _ = self.updates.send((
+            key,
+            match thumbnail_result {
+                Ok(ref thumbnail) => Ok(Bytes::clone(thumbnail)),
+                Err(_) => Err(()),
+            },
+        ));
+    }
+
+    async fn store_cached_thumbnail(&self, key: &CacheKey, thumbnail_result: &Result<Bytes>) {
         let mut locked = self.locked.lock().await;
-        while locked.used_size + thumbnail.len() > self.max_size {
-            let (_, evicted_thumbnail) = locked.cache.pop_lru().expect("cache should be non-empty");
-            locked.used_size -= evicted_thumbnail.len();
-        }
-        if let Some(overwritten_thumbnail) = locked.cache.put(key, Bytes::clone(&thumbnail)) {
-            // This should only happen fairly rarely -- one thread is working on the thumbnail,
-            // while another thread requests it again, doesn't find it in cache and
-            // starts working on it again.
-            // In this case we just remove the version that is created first and replace it
-            // with the newer one.
-            // In this case we need to subtract the size that gets overwritten.
-            locked.used_size -= overwritten_thumbnail.len();
-            locked.wasted_creation_rate.count(true);
-        } else {
-            locked.wasted_creation_rate.count(false);
-        }
-        locked.used_size += thumbnail.len();
 
-        Ok((thumbnail, hash))
+        match thumbnail_result {
+            Ok(ref thumbnail) if thumbnail.len() < self.max_size / 2 => {
+                locked.make_space(thumbnail.len(), self.max_size);
+                locked.used_size += thumbnail.len();
+
+                assert!(
+                    locked.cache.put(key.clone(), Some(Bytes::clone(thumbnail))) == Some(None),
+                    "Only the placeholder should be stored in the cache for this entry"
+                );
+            }
+            _ => {
+                assert!(
+                    locked.cache.pop(key) == Some(None),
+                    "Only the placeholder should be stored in the cache for this entry"
+                );
+            }
+        };
     }
 
     pub async fn cache_stats(&self) -> CacheStats {
@@ -208,11 +272,11 @@ impl CachedThumbnails {
             used_size: locked.used_size,
             max_size: self.max_size,
             hit_rate: locked.hit_rate.rate,
-            wasted_creation_rate: locked.wasted_creation_rate.rate,
         }
     }
 }
 
+/// Creates the thumbnail for a given path, resolution and type.
 pub fn create_thumbnail(
     file: &Path,
     resolution: (u32, u32),
@@ -235,6 +299,27 @@ pub fn create_thumbnail(
         thumbnail_type.image_output_format(),
     )?;
     Ok(bytes.into())
+}
+
+/// Wraps create_thumbnail, making the cache creating async, without blocking
+/// the Tokio runtime.
+/// Passes the cache key through to avoid cloning (because passing a reference into
+/// the spawned task is not possible).
+async fn spawn_create_thumbnail(mut key: CacheKey) -> (Result<Bytes>, CacheKey) {
+    // TODO: Spawn in rayon thread pool
+    let path = key.path;
+    let resolution = key.resolution;
+    let thumbnail_type = key.thumbnail_type;
+
+    let (thumbnail_result, path) = simple_spawn_blocking(move || {
+        let thumbnail = create_thumbnail(&path, resolution, thumbnail_type);
+        (thumbnail, path)
+    })
+    .await;
+
+    key.path = path;
+
+    (thumbnail_result, key)
 }
 
 /// Returns a hash describing the source image, if it is thumbnailable,
