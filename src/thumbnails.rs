@@ -14,6 +14,7 @@ use std::{
     io::Cursor,
     num::NonZeroU32,
     path::{Path, PathBuf},
+    sync::atomic::AtomicU64,
     time::SystemTime,
 };
 use tokio::sync::{broadcast, Mutex, MutexGuard};
@@ -55,30 +56,11 @@ impl CacheKey {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default)]
-struct HitRate {
-    pub rate: f32,
-}
-
-impl HitRate {
-    const SMOOTHING: f32 = 0.995;
-
-    fn count(&mut self, success: bool) {
-        self.rate *= Self::SMOOTHING;
-        if success {
-            self.rate += 1f32 - Self::SMOOTHING;
-        }
-    }
-}
-
 /// Internal part of the thumbnail cache that is protected by the mutex.
 #[derive(Debug)]
 struct Locked {
     cache: LruCache<CacheKey, Option<Bytes>>,
     used_size: usize,
-
-    hit_rate: HitRate,
-    waiting_rate: HitRate,
 }
 
 impl Locked {
@@ -130,14 +112,21 @@ pub struct CachedThumbnails {
     locked: Mutex<Locked>,
     updates: broadcast::Sender<(CacheKey, std::result::Result<Bytes, ()>)>,
     max_size: usize,
+
+    hits: AtomicU64,
+    hits_with_wait: AtomicU64,
+    misses: AtomicU64,
+    wait_lags: AtomicU64,
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct CacheStats {
     pub count: usize,
     pub used_size: usize,
-    pub max_size: usize,
-    pub hit_rate: f32,
+    pub hits: u64,
+    pub hits_with_wait: u64,
+    pub misses: u64,
+    pub wait_lags: u64,
 }
 
 impl CachedThumbnails {
@@ -146,11 +135,14 @@ impl CachedThumbnails {
             locked: Mutex::new(Locked {
                 cache: LruCache::unbounded(), // Cache size is managed manually, based on size, not count
                 used_size: 0,
-                hit_rate: HitRate { rate: 0.5 },
-                waiting_rate: HitRate { rate: 0.0 },
             }),
             updates: broadcast::Sender::new(8.max(num_cpus::get() * 2)),
             max_size,
+
+            hits: AtomicU64::new(0),
+            hits_with_wait: AtomicU64::new(0),
+            misses: AtomicU64::new(0),
+            wait_lags: AtomicU64::new(0),
         }
     }
 
@@ -172,22 +164,21 @@ impl CachedThumbnails {
                 Some(Some(thumbnail)) => {
                     // Found existing thumbnail
                     let thumbnail = Bytes::clone(thumbnail);
-                    locked.hit_rate.count(true);
-                    locked.waiting_rate.count(false);
+                    self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
                     Ok((thumbnail, hash))
                 }
                 Some(None) => {
                     // Thumbnail is being created by other task
-                    locked.hit_rate.count(true);
-                    locked.waiting_rate.count(true);
+                    self.hits_with_wait
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
                     Ok((self.wait_for_thumbnail(key, locked).await?, hash))
                 }
                 None => {
                     // Thumbnail is missing, we need to create it
-                    locked.hit_rate.count(false);
-                    locked.waiting_rate.count(false);
+                    self.misses
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
                     Ok((self.create_and_cache_thumbnail(key, locked).await?, hash))
                 }
@@ -206,7 +197,10 @@ impl CachedThumbnails {
         drop(locked);
 
         loop {
-            let (updated_key, updated_result) = receiver.recv().await?;
+            let (updated_key, updated_result) = receiver.recv().await.inspect_err(|_| {
+                self.wait_lags
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            })?;
             if updated_key == key {
                 return updated_result.map_err(|_| crate::error::FiledlError::ThumbnailUpdateError);
             }
@@ -270,8 +264,12 @@ impl CachedThumbnails {
         CacheStats {
             count: locked.cache.len(),
             used_size: locked.used_size,
-            max_size: self.max_size,
-            hit_rate: locked.hit_rate.rate,
+            hits: self.hits.load(std::sync::atomic::Ordering::Relaxed),
+            hits_with_wait: self
+                .hits_with_wait
+                .load(std::sync::atomic::Ordering::Relaxed),
+            misses: self.misses.load(std::sync::atomic::Ordering::Relaxed),
+            wait_lags: self.wait_lags.load(std::sync::atomic::Ordering::Relaxed),
         }
     }
 }
