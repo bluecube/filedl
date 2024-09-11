@@ -8,6 +8,7 @@ use lru::LruCache;
 use mime::Mime;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashSet,
     fmt::Display,
     fs::Metadata,
     hash::{Hash, Hasher},
@@ -60,7 +61,8 @@ impl CacheKey {
 /// Internal part of the thumbnail cache that is protected by the mutex.
 #[derive(Debug)]
 struct Locked {
-    cache: LruCache<CacheKey, Option<Bytes>>,
+    cache: LruCache<CacheKey, Bytes>,
+    pending: HashSet<CacheKey>,
     used_size: usize,
 }
 
@@ -73,7 +75,7 @@ impl Locked {
 
         while self.used_size + size > max_size {
             let (_, evicted_thumbnail) = self.cache.pop_lru().expect("cache should be non-empty");
-            self.used_size -= evicted_thumbnail.map_or(0, |t| t.len());
+            self.used_size -= evicted_thumbnail.len();
         }
     }
 }
@@ -135,6 +137,7 @@ impl CachedThumbnails {
         CachedThumbnails {
             locked: Mutex::new(Locked {
                 cache: LruCache::unbounded(), // Cache size is managed manually, based on size, not count
+                pending: HashSet::new(),
                 used_size: 0,
             }),
             updates: broadcast::Sender::new(8.max(num_cpus::get() * 2)),
@@ -158,25 +161,24 @@ impl CachedThumbnails {
         let key = CacheKey::new(file, metadata, resolution, thumbnail_type);
 
         let hash = key.hash_string();
-        {
-            let mut locked = self.locked.lock().await;
+        let mut locked = self.locked.lock().await;
 
-            match locked.cache.get(&key) {
-                Some(Some(thumbnail)) => {
-                    // Found existing thumbnail
-                    let thumbnail = Bytes::clone(thumbnail);
-                    self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        match locked.cache.get(&key) {
+            Some(thumbnail) => {
+                // Found existing thumbnail
+                let thumbnail = Bytes::clone(thumbnail);
+                self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-                    Ok((thumbnail, hash))
-                }
-                Some(None) => {
+                Ok((thumbnail, hash))
+            }
+            None => {
+                if locked.pending.contains(&key) {
                     // Thumbnail is being created by other task
                     self.hits_with_wait
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
                     Ok((self.wait_for_thumbnail(key, locked).await?, hash))
-                }
-                None => {
+                } else {
                     // Thumbnail is missing, we need to create it
                     self.misses
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -214,15 +216,39 @@ impl CachedThumbnails {
         key: CacheKey,
         mut locked: MutexGuard<'a, Locked>,
     ) -> Result<Bytes> {
-        // Write a placeholder into the cache.
+        // Store a pending flag for this key
         assert!(
-            locked.cache.put(key.clone(), None).is_none(),
-            "At this point the guard is still locked, so we know we're not overwriting anything"
+            locked.pending.insert(key.clone()),
+            "At this point the mutex is still locked, so there shouldn't be a pending flag"
         );
         drop(locked);
 
         let (thumbnail_result, key) = spawn_create_thumbnail(key).await;
-        self.store_cached_thumbnail(&key, &thumbnail_result).await;
+
+        let mut locked = self.locked.lock().await;
+
+        if let Ok(ref thumbnail) = thumbnail_result {
+            if thumbnail.len() < self.max_size / 2 {
+                // We only cache thumbnails that aren't too big
+
+                locked.make_space(thumbnail.len(), self.max_size);
+                locked.used_size += thumbnail.len();
+
+                assert!(
+                    locked
+                        .cache
+                        .put(key.clone(), Bytes::clone(thumbnail))
+                        .is_none(),
+                    "We should never overwrite a thumbnail"
+                );
+            }
+        }
+
+        assert!(
+            locked.pending.remove(&key),
+            "The pending flag should still be set at this point"
+        );
+
         self.send_thumbnail_update(key, &thumbnail_result);
 
         thumbnail_result
@@ -236,28 +262,6 @@ impl CachedThumbnails {
                 Err(_) => Err(()),
             },
         ));
-    }
-
-    async fn store_cached_thumbnail(&self, key: &CacheKey, thumbnail_result: &Result<Bytes>) {
-        let mut locked = self.locked.lock().await;
-
-        match thumbnail_result {
-            Ok(ref thumbnail) if thumbnail.len() < self.max_size / 2 => {
-                locked.make_space(thumbnail.len(), self.max_size);
-                locked.used_size += thumbnail.len();
-
-                assert!(
-                    locked.cache.put(key.clone(), Some(Bytes::clone(thumbnail))) == Some(None),
-                    "Only the placeholder should be stored in the cache for this entry"
-                );
-            }
-            _ => {
-                assert!(
-                    locked.cache.pop(key) == Some(None),
-                    "Only the placeholder should be stored in the cache for this entry"
-                );
-            }
-        };
     }
 
     pub async fn cache_stats(&self) -> CacheStats {
