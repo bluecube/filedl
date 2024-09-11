@@ -99,33 +99,37 @@ ul.dir-listing {
         border: 0.05em solid $base-text;
         border-radius: 0.3em;
         background-color: $item-bg;
-        margin: 0;
-        margin-top: 0.2em;
-        margin-bottom: 0.2em;
+        margin: .2em 0 .2em 0;
         padding: 0.3em;
+        padding-right: 0.8em;
         min-height: 2.5em;
         display: flex;
         justify-content: flex-end;
         flex-wrap: wrap;
         align-items: center;
+        gap: 0.5em;
 
         a.main-link {
-            display: block;
-            overflow-wrap: break-word;
-            max-width: 100%;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
             text-decoration: none;
-            flex: 1 0 auto;
-
-            .underlined {
-                text-decoration: underline;
-                margin-left: 0.5em;
-            }
+            flex: 1 1 auto;
+            gap: 0.5em;
 
             img {
                 width: 4rem;
                 height: 4rem;
                 vertical-align: middle;
-                display: inline-block;
+                flex: 0 0 auto;
+            }
+
+            .underlined {
+                display: block;
+                text-decoration: underline;
+                overflow-wrap: break-word;
+                flex: 1 0 60%;
+                min-width: 60%;
             }
         }
     }
@@ -133,8 +137,11 @@ ul.dir-listing {
     .details-outer {
         display: flex;
         flex-direction: row;
-        flex: 0 0 auto;
+        flex: 0 1 auto;
+        flex-wrap: wrap;
         align-items: center;
+        justify-content: flex-end;
+        gap: 0.5em;
     }
 
     .details-inner {
@@ -149,10 +156,11 @@ ul.dir-listing {
         }
     }
 
-    a.download img {
-        width: 2em;
-        height: 2em;
-        margin: 0.5em
+    a.download {
+        img {
+            width: 2em;
+            height: 2em;
+        }
     }
 }
 
