@@ -1,4 +1,4 @@
-use crate::{error::Result, util::simple_spawn_blocking};
+use crate::error::Result;
 use actix_web::web::Bytes;
 use assert2::assert;
 use image::{
@@ -157,7 +157,6 @@ impl CachedThumbnails {
         resolution: (u32, u32),
         thumbnail_type: ThumbnailType,
     ) -> Result<(Bytes, String)> {
-        // Must be mutable because of the spawn_blocking trick below
         let key = CacheKey::new(file, metadata, resolution, thumbnail_type);
 
         let hash = key.hash_string();
@@ -304,17 +303,15 @@ pub fn create_thumbnail(
     Ok(bytes.into())
 }
 
-/// Wraps create_thumbnail, making the cache creating async, without blocking
-/// the Tokio runtime.
+/// Wraps create_thumbnail, making it async, without blocking the Tokio runtime.
 /// Passes the cache key through to avoid cloning (because passing a reference into
 /// the spawned task is not possible).
 async fn spawn_create_thumbnail(mut key: CacheKey) -> (Result<Bytes>, CacheKey) {
-    // TODO: Spawn in rayon thread pool
     let path = key.path;
     let resolution = key.resolution;
     let thumbnail_type = key.thumbnail_type;
 
-    let (thumbnail_result, path) = simple_spawn_blocking(move || {
+    let (thumbnail_result, path) = tokio_rayon::spawn(move || {
         let thumbnail = create_thumbnail(&path, resolution, thumbnail_type);
         (thumbnail, path)
     })

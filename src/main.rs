@@ -5,7 +5,6 @@ mod pages;
 mod storage;
 mod templates;
 mod thumbnails;
-mod util;
 
 use crate::pages::configure_pages;
 
