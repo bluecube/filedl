@@ -108,8 +108,8 @@ impl<'a> DirListing<'a> {
                         }
                     }
                 }
-                div(class = "details1") {
-                    div(class = "details2") {
+                div(class = "details-outer") {
+                    div(class = "details-inner") {
                         @ if !item.item_type.is_directory() {
                             span(class="size") {
                                 : format_size(item.file_size, BINARY)

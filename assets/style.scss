@@ -130,14 +130,14 @@ ul.dir-listing {
         }
     }
 
-    .details1 {
+    .details-outer {
         display: flex;
         flex-direction: row;
         flex: 0 0 auto;
         align-items: center;
     }
 
-    .details2 {
+    .details-inner {
         display: flex;
         flex-direction: column;
         text-align: right;
