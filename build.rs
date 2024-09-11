@@ -11,14 +11,14 @@ use walkdir::WalkDir;
 
 fn main() {
     process_assets(
-        &Path::new("assets"),
+        Path::new("assets"),
         &Path::new(&env::var("OUT_DIR").unwrap()).join("assets"),
     )
     .unwrap();
 }
 
 fn process_assets(source_dir: &Path, dest_dir: &Path) -> anyhow::Result<()> {
-    create_dir_all(&dest_dir).unwrap();
+    create_dir_all(dest_dir).unwrap();
 
     println!("cargo::rerun-if-changed={}", source_dir.display());
 
@@ -55,26 +55,27 @@ fn assets(name: &str) -> Option<(&'static [u8], &'static [u8], mime::Mime)> {{
         let dest_compressed_path = add_extension(&dest_path, ".br");
         brotli_compress(&content, &dest_compressed_path)?;
 
-        write!(
+        writeln!(
             assets_rs,
-            "        \"{}\" => Some((\n",
+            "        \"{}\" => Some((",
             converted_name.display(),
         )?;
-        write!(
+        writeln!(
             assets_rs,
-            "            include_bytes!(concat!(env!(\"OUT_DIR\"), \"/assets/{}\")).as_slice(),\n",
+            "            include_bytes!(concat!(env!(\"OUT_DIR\"), \"/assets/{}\")).as_slice(),",
             converted_name.display(),
         )?;
-        write!(
+        writeln!(
             assets_rs,
-            "            include_bytes!(concat!(env!(\"OUT_DIR\"), \"/assets/{}.br\")).as_slice(),\n",
+            "            include_bytes!(concat!(env!(\"OUT_DIR\"), \"/assets/{}.br\")).as_slice(),",
             converted_name.display(),
         )?;
-        write!(assets_rs, "            mime::{}\n", mime)?;
-        write!(assets_rs, "        )),\n",)?;
+        writeln!(assets_rs, "            mime::{}", mime)?;
+        writeln!(assets_rs, "        )),",)?;
     }
 
-    write!(assets_rs, "        _ => None\n    }}\n}}\n")?;
+    writeln!(assets_rs, "        _ => None\n    }}")?;
+    writeln!(assets_rs, "}}")?;
 
     Ok(())
 }
@@ -146,9 +147,11 @@ fn copied_asset(
 
 fn brotli_compress(source: &[u8], dest: &Path) -> anyhow::Result<()> {
     let mut dest = File::create(dest)?;
-    let mut params = BrotliEncoderParams::default();
-    params.quality = 11;
-    params.size_hint = source.len();
+    let params = BrotliEncoderParams {
+        quality: 11,
+        size_hint: source.len(),
+        ..Default::default()
+    };
 
     BrotliCompress(&mut Cursor::new(source), &mut dest, &params)?;
 

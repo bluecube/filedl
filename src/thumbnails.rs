@@ -26,6 +26,7 @@ struct CacheKey {
     path: PathBuf,
     file_size: u64,
     modtime: Option<SystemTime>,
+    // TODO: Reuse AppData::CacheSourceKey?
 
     // Properties of the final thumbnail
     resolution: (u32, u32),
