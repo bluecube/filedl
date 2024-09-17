@@ -9,7 +9,7 @@ const PERCENT_ENCODING_CHARSET: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
     .remove(b'.');
 
-pub fn url_encode<'a>(s: &'a str) -> PercentEncode<'a> {
+pub fn url_encode(s: &str) -> PercentEncode<'_> {
     utf8_percent_encode(s, PERCENT_ENCODING_CHARSET)
 }
 

@@ -50,7 +50,7 @@ enum ContentEncoding {
     Brotli,
 }
 
-const CACHE_CONTROL_IMMUTABLE: (&'static str, &'static str) = (
+const CACHE_CONTROL_IMMUTABLE: (&str, &str) = (
     "Cache-Control",
     "max-age=31536000, immutable", // 1 year
 );
@@ -198,8 +198,8 @@ async fn download_object(
     }
 }
 
-async fn file_download<'a>(
-    resolved_object: ResolvedObject<'a>,
+async fn file_download(
+    resolved_object: ResolvedObject<'_>,
     force_download: bool,
 ) -> Result<NamedFile> {
     let mut nf = NamedFile::open_async(resolved_object.path()).await?;
@@ -251,7 +251,7 @@ fn asset_download(app: &AppData, object_path: &str, req: &HttpRequest) -> Result
             )));
     }
 
-    let (content, brotli_content, ct) = assets(&object_path).ok_or(FiledlError::ObjectNotFound)?;
+    let (content, brotli_content, ct) = assets(object_path).ok_or(FiledlError::ObjectNotFound)?;
 
     let mut response_builder = HttpResponse::Ok();
     response_builder

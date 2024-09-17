@@ -11,7 +11,7 @@ use horrorshow::{html, labels_sep_by, RenderOnce, TemplateBuffer};
 use humansize::{format_size, BINARY};
 
 use crate::{
-    app_data::{AppData, DirListingItem, ItemType},
+    app_data::{AppData, DirListingItem},
     thumbnails::ThumbnailType,
 };
 
