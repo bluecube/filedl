@@ -117,11 +117,17 @@ ul.dir-listing {
             flex: 1 1 auto;
             gap: 0.5em;
 
-            img {
+            img, &.no-thumbnail::before {
+                display: block;
                 width: 4rem;
                 height: 4rem;
                 vertical-align: middle;
                 flex: 0 0 auto;
+                background-size: cover;
+            }
+
+            &.no-thumbnail::before {
+                content: "";
             }
 
             .underlined {

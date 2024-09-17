@@ -15,9 +15,15 @@ let downloadLink = null;
 function galleryInit() {
     document.querySelectorAll(".dir-listing .image").forEach((entry, index) => {
         let mainLink = entry.querySelector(".main-link");
-        let download = entry.querySelector("a.download")
-        let thumbnail = entry.querySelector("img.thumbnail")
-        images.push([mainLink.innerText, download.href, thumbnail.src]);
+        let download = entry.querySelector("a.download");
+        let thumbnail = mainLink.querySelector("img");
+
+        if (thumbnail) {
+            thumbnail_url = thumbnail.src;
+        } else {
+            thumbnail_url = null;
+        }
+        images.push([mainLink.innerText, download.href, thumbnail_url]);
         mainLink.href = hashForIndex(index);
     });
 

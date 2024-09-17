@@ -34,6 +34,10 @@ impl<'a, T: RenderOnce, C: RenderOnce> RenderOnce for Page<'a, T, C> {
                         rel = "stylesheet",
                         href = self.asset_url("style.css")
                     );
+                    link(
+                        rel = "stylesheet",
+                        href = self.asset_url("icons.css")
+                    );
                     script(
                         src = self.asset_url("gallery.js"),
                         defer

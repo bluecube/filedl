@@ -1,5 +1,6 @@
 mod breadcrumbs;
 mod dir_listing;
+mod icons_css;
 mod page;
 pub mod util;
 
@@ -7,6 +8,7 @@ use std::fmt::{Display, Formatter};
 
 pub use dir_listing::DirListing;
 use horrorshow::{RenderOnce, TemplateBuffer};
+pub use icons_css::icons_css;
 
 #[derive(Clone)]
 struct AssetUrl<'a> {

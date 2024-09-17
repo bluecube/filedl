@@ -73,11 +73,17 @@ impl<'a> DirListing<'a> {
     fn render_item(&self, tmpl: &mut TemplateBuffer<'_>, item: &DirListingItem) {
         let url = ItemUrl::new(self, item);
         tmpl << html!(
-            li(class = format!("{}", item.item_type)) {
-                a(class = "main-link", href = url.clone()) {
+            li(class = format_args!("{}", item.item_type)) {
+                a(class = format_args!(
+                    "main-link{}",
+                    if item.item_type.is_thumbnailable() {
+                        ""
+                    } else {
+                        " no-thumbnail"
+                    }
+                    ), href = url.clone()) {
                     @ if item.item_type.is_thumbnailable() {
                         img(
-                            class = "thumbnail",
                             src = url.thumbnail(64, self.thumbnail_type, None),
                             srcset = labels_sep_by!(
                                 ",";
@@ -87,17 +93,6 @@ impl<'a> DirListing<'a> {
                             ),
                             sizes = "4em",
                             loading = "lazy",
-                            alt = ""
-                        );
-                    }
-                    @ if !item.item_type.is_thumbnailable() {
-                        img(
-                            class = "thumbnail",
-                            src = match item.item_type {
-                                ItemType::Image => self.asset_url("image.svg"),
-                                ItemType::Directory => self.asset_url("directory.svg"),
-                                _ => self.asset_url("file.svg"),
-                            },
                             alt = ""
                         );
                     }

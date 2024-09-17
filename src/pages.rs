@@ -153,7 +153,7 @@ async fn download_object(
 ) -> Result<Either<NamedFile, HttpResponse>> {
     let object_path = path.into_inner();
     if query.mode == DownloadMode::Assets {
-        asset_download(&object_path, &req).map(Either::Right)
+        asset_download(&app, &object_path, &req).map(Either::Right)
     } else {
         let resolved_object = app
             .resolve_object(object_path.as_str(), query.key.as_deref())
@@ -240,7 +240,17 @@ async fn thumb_download<'a>(
     // TODO: Proper browser caching control
 }
 
-fn asset_download(object_path: &str, req: &HttpRequest) -> Result<HttpResponse> {
+fn asset_download(app: &AppData, object_path: &str, req: &HttpRequest) -> Result<HttpResponse> {
+    if object_path == "icons.css" {
+        return Ok(HttpResponse::Ok()
+            .insert_header(header::ContentType(mime::TEXT_CSS))
+            .insert_header(CACHE_CONTROL_IMMUTABLE)
+            .body(templates::icons_css(
+                app.get_download_base_url(),
+                app.get_static_content_hash(),
+            )));
+    }
+
     let (content, brotli_content, ct) = assets(&object_path).ok_or(FiledlError::ObjectNotFound)?;
 
     let mut response_builder = HttpResponse::Ok();
