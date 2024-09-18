@@ -70,9 +70,10 @@ fn cache_control(cache_hash: Option<&str>) -> (&'static str, &'static str) {
 
 impl ResponseError for FiledlError {
     fn status_code(&self) -> actix_web::http::StatusCode {
+        // TODO: Clean this up!
         match self {
             FiledlError::ObjectNotFound => StatusCode::NOT_FOUND,
-            FiledlError::Unlisted => StatusCode::NOT_FOUND,
+            FiledlError::Unlisted { path: _, key: _ } => StatusCode::NOT_FOUND,
             FiledlError::BadDownloadMode => StatusCode::NOT_FOUND,
             FiledlError::IOError { source } => match source.kind() {
                 std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,

@@ -265,7 +265,14 @@ impl AppData {
         key: Option<&str>,
     ) -> Result<ResolvedObject<'a>> {
         let (object_id, subobject_path) = match path.split_once('/') {
-            Some((object_id, subobject_path)) => (object_id, Some(subobject_path)),
+            Some((object_id, subobject_path)) => {
+                if subobject_path.split('/').any(|part| part == "..") {
+                    return Err(FiledlError::DirectoryTraversal {
+                        path: path.to_owned(),
+                    });
+                }
+                (object_id, Some(subobject_path))
+            }
             None => (path, None),
         };
 
@@ -275,11 +282,12 @@ impl AppData {
             .as_ref()
             .is_some_and(|expected_key| key != Some(expected_key))
         {
-            // Someone is snooping around for unlisted objects
-            return Err(FiledlError::Unlisted);
+            return Err(FiledlError::Unlisted {
+                path: path.to_owned(),
+                key: key.map(|key| key.to_owned()),
+            });
         }
 
-        // TODO: Verify that subobject path is not weird
         // TODO: Handle expiry?
 
         let mut object_fs_path = self.get_object_path(object_id, &obj);

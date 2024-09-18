@@ -4,10 +4,12 @@ pub type Result<T> = std::result::Result<T, FiledlError>;
 pub enum FiledlError {
     #[error("Object not found")]
     ObjectNotFound,
-    #[error("Object exists, but is unlisted")]
-    Unlisted,
+    #[error("Unlisted object {path} accessed with wrong key {key:?}")]
+    Unlisted { path: String, key: Option<String> },
     #[error("Attempting to use unsupported download mode")]
     BadDownloadMode,
+    #[error("Directory traversal in path {path}")]
+    DirectoryTraversal { path: String },
     #[error("Zip downloads are unimplemented")]
     UnimplementedZipDownload,
     #[error("Template error: {source}")]
