@@ -25,12 +25,13 @@ impl<T: Serialize + DeserializeOwned> Storage<T> {
     }
 
     pub fn set(&mut self, key: Arc<str>, value: T) -> Option<T> {
-        self.dirty = true;
+        self.make_dirty();
         self.map.insert(key, value)
     }
 
+
     pub fn remove(&mut self, key: &str) -> Option<T> {
-        self.dirty = true;
+        self.make_dirty();
         self.map.remove(key)
     }
 
@@ -68,6 +69,10 @@ impl<T: Serialize + DeserializeOwned> Storage<T> {
 
     pub fn iter(&self) -> Iterator<T> {
         self.map.iter()
+    }
+
+    fn make_dirty(&mut self) {
+        self.dirty = true;
     }
 }
 
