@@ -8,13 +8,13 @@ use actix_files::NamedFile;
 use actix_web::{
     get,
     http::{header, StatusCode},
-    routes,
-    web::{self, Redirect},
+    put, routes,
+    web::{self, Payload, Redirect},
     Either, HttpRequest, HttpResponse, Responder, ResponseError,
 };
 use horrorshow::Template as _;
 use memchr::memmem;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub const PROJECT_NAME: &str = env!("CARGO_PKG_NAME");
@@ -48,6 +48,11 @@ struct DownloadQuery {
 enum ContentEncoding {
     Identity,
     Brotli,
+}
+
+#[derive(Debug, Serialize)]
+struct UploadResult {
+    download_url: String,
 }
 
 const CACHE_CONTROL_IMMUTABLE: (&str, &str) = (
@@ -100,6 +105,20 @@ async fn index_redirect() -> impl Responder {
 #[get("/admin")]
 async fn admin(app: web::Data<Arc<AppData>>) -> impl Responder {
     "TODO"
+}
+
+#[put("/admin/objects/{object:.*}")]
+async fn rest_file_upload(
+    app: web::Data<Arc<AppData>>,
+    path: web::Path<String>,
+    payload: Payload,
+) -> Result<HttpResponse> {
+    let object_path = path.into_inner();
+    app.upload_simple_object(object_path.as_str().into(), payload)
+        .await?;
+
+    let download_url = format!("{}/{}", app.get_download_base_url(), &object_path);
+    Ok(HttpResponse::Ok().json(UploadResult { download_url }))
 }
 
 #[get("/admin/thumbnail_cache_stats")]
@@ -293,6 +312,7 @@ pub fn configure_pages(cfg: &mut web::ServiceConfig) {
         .service(index_redirect)
         .service(admin)
         .service(thumbnail_cache_stats)
+        .service(rest_file_upload)
         .service(download_root)
         .service(download_object);
 }

@@ -8,6 +8,7 @@ use crate::{
 use actix_web::web::Bytes;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
+use futures::{pin_mut, Stream, TryFutureExt};
 use rand::{thread_rng, RngCore};
 use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
@@ -20,6 +21,7 @@ use std::{
 };
 use tokio::{
     fs,
+    io::AsyncWriteExt,
     sync::{RwLock, RwLockReadGuard},
 };
 
@@ -217,13 +219,20 @@ impl AppData {
         let download_base_url = format!("{}", url_encode(&config.download_url))
             .trim_end_matches('/')
             .to_owned();
-        Ok(AppData {
+
+        let data = AppData {
             config,
             objects,
             thumbnails: CachedThumbnails::new(thumbnail_cache_size),
             static_content_hash,
             download_base_url,
-        })
+        };
+
+        // Remove the upload temp area from possible previous failed uploads
+        // Ignoring errors
+        let _ = std::fs::remove_dir_all(data.get_upload_temp_path());
+
+        Ok(data)
     }
 
     pub fn get_download_base_url(&self) -> &str {
@@ -246,17 +255,23 @@ impl AppData {
         self.thumbnails.cache_stats().await
     }
 
+    fn get_owned_object_path(&self, object_id: &str) -> PathBuf {
+        let mut path = self.config.data_path.join("owned_data");
+        path.push(object_id);
+        path
+    }
+
     fn get_object_path(&self, object_id: &str, obj: &Object) -> PathBuf {
         match &obj.ownership {
-            ObjectOwnership::Owned => {
-                let mut path = self.config.data_path.join("owned_data");
-                path.push(object_id);
-                path
-            }
+            ObjectOwnership::Owned => self.get_owned_object_path(object_id),
             ObjectOwnership::Linked(link_path) => {
                 link_path.to_path(&self.config.linked_objects_root)
             }
         }
+    }
+
+    fn get_upload_temp_path(&self) -> PathBuf {
+        self.config.data_path.join("temp_upload")
     }
 
     pub async fn resolve_object<'a>(
@@ -320,5 +335,59 @@ impl AppData {
         }
 
         Ok(result)
+    }
+
+    /// Creates an owned object that contains just a single file with the given content.
+    pub async fn upload_simple_object<S, E>(&self, object_id: Arc<str>, content: S) -> Result<()>
+    where
+        S: Stream<Item = std::result::Result<Bytes, E>>,
+        E: Into<FiledlError>,
+    {
+        use futures::StreamExt;
+
+        // 1. Optimistic check of the metadata, allowing us to reject duplicate uploads early.
+        if let Ok(_) = self.object_from_id(&object_id).await {
+            return Err(FiledlError::ObjectExists { object_id });
+        }
+
+        // 2. Copy the uploaded data to a temp file
+        let upload_temp_path = self.get_upload_temp_path();
+        tokio::fs::create_dir_all(&upload_temp_path).await?;
+        let (f, temp_path) = tempfile::NamedTempFile::new_in(upload_temp_path)?.into_parts();
+        let mut f = tokio::fs::File::from_std(f);
+
+        pin_mut!(content);
+
+        // 3. Copy the content to file, this might take a long time
+        while let Some(block) = content.next().await {
+            let block = block.map_err(|e| e.into())?;
+            f.write_all(&block).await?;
+        }
+
+        drop(f); // We're done with the file, only using the temp_path from now on
+
+        // 4. Lock the storage for writing, create the object and move downloaded file
+        // to the final location.
+        // This can still fail if someone created the file while we were uploading.
+        let mut guard = self.objects.write().await;
+
+        if !guard.create(
+            Arc::clone(&object_id),
+            Object {
+                ownership: ObjectOwnership::Owned,
+                expires: None,
+                unlisted_key: None,
+            },
+        ) {
+            return Err(FiledlError::ObjectExists { object_id });
+        }
+
+        tokio::fs::rename(
+            temp_path.keep().unwrap(),
+            self.get_owned_object_path(&object_id),
+        )
+        .await?; // TODO: What happens if this fails?
+
+        Ok(())
     }
 }

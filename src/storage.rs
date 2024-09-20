@@ -29,6 +29,19 @@ impl<T: Serialize + DeserializeOwned> Storage<T> {
         self.map.insert(key, value)
     }
 
+    /// Creates the object if it doesn't exist.
+    /// Returns true if it was created successfully, false if it already existed.
+    pub fn create(&mut self, key: Arc<str>, value: T) -> bool {
+        match self.map.entry(key) {
+            std::collections::hash_map::Entry::Occupied(_) => return false,
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(value);
+            }
+        }
+
+        self.make_dirty();
+        true
+    }
 
     pub fn remove(&mut self, key: &str) -> Option<T> {
         self.make_dirty();

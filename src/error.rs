@@ -1,9 +1,13 @@
+use std::sync::Arc;
+
 pub type Result<T> = std::result::Result<T, FiledlError>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FiledlError {
     #[error("Object not found")]
     ObjectNotFound,
+    #[error("Object {object_id} already exists")]
+    ObjectExists { object_id: Arc<str> },
     #[error("Unlisted object {path} accessed with wrong key {key:?}")]
     Unlisted { path: String, key: Option<String> },
     #[error("Attempting to use unsupported download mode")]
@@ -44,4 +48,10 @@ pub enum FiledlError {
     },
     #[error("Thumbnail generation failed in other task")]
     ThumbnailUpdateError,
+    #[error("Error when extracting request payload: {source}")]
+    PayloadError {
+        #[from]
+        #[source]
+        source: actix_web::error::PayloadError,
+    },
 }
