@@ -8,7 +8,7 @@ use crate::{
 use actix_web::web::Bytes;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use futures::{pin_mut, Stream, TryFutureExt};
+use futures::{pin_mut, Stream};
 use rand::{thread_rng, RngCore};
 use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
@@ -252,7 +252,7 @@ impl AppData {
     }
 
     pub async fn get_thumbnail_cache_stats(&self) -> CacheStats {
-        self.thumbnails.cache_stats().await
+        self.thumbnails.cache_stats()
     }
 
     fn get_owned_object_path(&self, object_id: &str) -> PathBuf {

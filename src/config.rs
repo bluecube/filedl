@@ -30,7 +30,7 @@ fn default_timezone() -> Tz {
     UTC
 }
 
-fn default_thumbnail_cache_size() -> usize {
+fn default_thumbnail_cache_size() -> u64 {
     1024 * 1024 * 20
 }
 
@@ -60,7 +60,7 @@ pub struct Config {
 
     /// Maximum size in bytes for cached thumbnails.
     #[serde(default = "default_thumbnail_cache_size")]
-    pub thumbnail_cache_size: usize,
+    pub thumbnail_cache_size: u64,
 }
 
 #[derive(Debug, Parser)]

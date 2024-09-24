@@ -1,24 +1,20 @@
 use crate::error::Result;
 use actix_web::web::Bytes;
-use assert2::assert;
 use image::{
     imageops, DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Pixel, Rgb, RgbImage,
 };
-use lru::LruCache;
 use mime::Mime;
+use quick_cache::{sync::Cache, Weighter};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
     fmt::Display,
     fs::Metadata,
     hash::{Hash, Hasher},
     io::Cursor,
     num::NonZeroU32,
     path::{Path, PathBuf},
-    sync::atomic::AtomicU64,
     time::SystemTime,
 };
-use tokio::sync::{broadcast, Mutex, MutexGuard};
 
 /// Describes a cached rendered thumbnail
 #[derive(Clone, Hash, Debug, PartialEq, Eq)]
@@ -58,28 +54,6 @@ impl CacheKey {
     }
 }
 
-/// Internal part of the thumbnail cache that is protected by the mutex.
-#[derive(Debug)]
-struct Locked {
-    cache: LruCache<CacheKey, Bytes>,
-    pending: HashSet<CacheKey>,
-    used_size: usize,
-}
-
-impl Locked {
-    /// Makes space in the cache for size bytes, so that the size of cached data is
-    /// less than or equal to max_size.
-    /// size must be less than or equal to max_size
-    fn make_space(&mut self, size: usize, max_size: usize) {
-        assert!(size <= max_size);
-
-        while self.used_size + size > max_size {
-            let (_, evicted_thumbnail) = self.cache.pop_lru().expect("cache should be non-empty");
-            self.used_size -= evicted_thumbnail.len();
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum ThumbnailType {
@@ -110,43 +84,37 @@ impl ThumbnailType {
     }
 }
 
+#[derive(Debug, Clone)]
+struct BytesWeighter();
+
+impl<K> Weighter<K, Bytes> for BytesWeighter {
+    fn weight(&self, _key: &K, val: &Bytes) -> u64 {
+        val.len() as u64
+    }
+}
+
 #[derive(Debug)]
 pub struct CachedThumbnails {
-    locked: Mutex<Locked>,
-    updates: broadcast::Sender<(CacheKey, std::result::Result<Bytes, ()>)>,
-    max_size: usize,
-
-    hits: AtomicU64,
-    hits_with_wait: AtomicU64,
-    misses: AtomicU64,
-    wait_lags: AtomicU64,
+    cache: Cache<CacheKey, Bytes, BytesWeighter>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct CacheStats {
     pub count: usize,
-    pub used_size: usize,
+    pub used_size: u64,
     pub hits: u64,
-    pub hits_with_wait: u64,
     pub misses: u64,
-    pub wait_lags: u64,
 }
 
 impl CachedThumbnails {
-    pub fn new(max_size: usize) -> Self {
+    pub fn new(max_size: u64) -> Self {
+        const EXPECTED_THUMBNAIL_SIZE: u64 = 3 * 1024;
         CachedThumbnails {
-            locked: Mutex::new(Locked {
-                cache: LruCache::unbounded(), // Cache size is managed manually, based on size, not count
-                pending: HashSet::new(),
-                used_size: 0,
-            }),
-            updates: broadcast::Sender::new(8.max(num_cpus::get() * 2)),
-            max_size,
-
-            hits: AtomicU64::new(0),
-            hits_with_wait: AtomicU64::new(0),
-            misses: AtomicU64::new(0),
-            wait_lags: AtomicU64::new(0),
+            cache: Cache::with_weighter(
+                (max_size / EXPECTED_THUMBNAIL_SIZE) as usize,
+                max_size,
+                BytesWeighter(),
+            ),
         }
     }
 
@@ -158,122 +126,26 @@ impl CachedThumbnails {
         thumbnail_type: ThumbnailType,
     ) -> Result<(Bytes, String)> {
         let key = CacheKey::new(file, metadata, resolution, thumbnail_type);
+        let hash_str = key.hash_string();
 
-        let hash = key.hash_string();
-        let mut locked = self.locked.lock().await;
-
-        match locked.cache.get(&key) {
-            Some(thumbnail) => {
-                // Found existing thumbnail
-                let thumbnail = Bytes::clone(thumbnail);
-                self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-                Ok((thumbnail, hash))
+        let thumbnail = match self.cache.get_value_or_guard_async(&key).await {
+            Ok(thumbnail) => thumbnail,
+            Err(guard) => {
+                let thumbnail = spawn_create_thumbnail(key).await?;
+                guard.insert(thumbnail.clone()).unwrap();
+                thumbnail
             }
-            None => {
-                if locked.pending.contains(&key) {
-                    // Thumbnail is being created by other task
-                    self.hits_with_wait
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        };
 
-                    Ok((self.wait_for_thumbnail(key, locked).await?, hash))
-                } else {
-                    // Thumbnail is missing, we need to create it
-                    self.misses
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-                    Ok((self.create_and_cache_thumbnail(key, locked).await?, hash))
-                }
-            }
-        }
+        Ok((thumbnail, hash_str))
     }
 
-    async fn wait_for_thumbnail<'a>(
-        &self,
-        key: CacheKey,
-        locked: MutexGuard<'a, Locked>,
-    ) -> Result<Bytes> {
-        // Subscribing the receiver while the lock is still held means the update will not
-        // happen before we're subscribed
-        let mut receiver = self.updates.subscribe();
-        drop(locked);
-
-        loop {
-            let (updated_key, updated_result) = receiver.recv().await.inspect_err(|_| {
-                self.wait_lags
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            })?;
-            if updated_key == key {
-                return updated_result.map_err(|_| crate::error::FiledlError::ThumbnailUpdateError);
-            }
-        }
-    }
-
-    /// Create the thumbnail in a background task,
-    async fn create_and_cache_thumbnail<'a>(
-        &self,
-        key: CacheKey,
-        mut locked: MutexGuard<'a, Locked>,
-    ) -> Result<Bytes> {
-        // Store a pending flag for this key
-        assert!(
-            locked.pending.insert(key.clone()),
-            "At this point the mutex is still locked, so there shouldn't be a pending flag"
-        );
-        drop(locked);
-
-        let (thumbnail_result, key) = spawn_create_thumbnail(key).await;
-
-        let mut locked = self.locked.lock().await;
-
-        if let Ok(ref thumbnail) = thumbnail_result {
-            if thumbnail.len() < self.max_size / 2 {
-                // We only cache thumbnails that aren't too big
-
-                locked.make_space(thumbnail.len(), self.max_size);
-                locked.used_size += thumbnail.len();
-
-                assert!(
-                    locked
-                        .cache
-                        .put(key.clone(), Bytes::clone(thumbnail))
-                        .is_none(),
-                    "We should never overwrite a thumbnail"
-                );
-            }
-        }
-
-        assert!(
-            locked.pending.remove(&key),
-            "The pending flag should still be set at this point"
-        );
-
-        self.send_thumbnail_update(key, &thumbnail_result);
-
-        thumbnail_result
-    }
-
-    fn send_thumbnail_update(&self, key: CacheKey, thumbnail_result: &Result<Bytes>) {
-        let _ = self.updates.send((
-            key,
-            match thumbnail_result {
-                Ok(ref thumbnail) => Ok(Bytes::clone(thumbnail)),
-                Err(_) => Err(()),
-            },
-        ));
-    }
-
-    pub async fn cache_stats(&self) -> CacheStats {
-        let locked = self.locked.lock().await;
+    pub fn cache_stats(&self) -> CacheStats {
         CacheStats {
-            count: locked.cache.len(),
-            used_size: locked.used_size,
-            hits: self.hits.load(std::sync::atomic::Ordering::Relaxed),
-            hits_with_wait: self
-                .hits_with_wait
-                .load(std::sync::atomic::Ordering::Relaxed),
-            misses: self.misses.load(std::sync::atomic::Ordering::Relaxed),
-            wait_lags: self.wait_lags.load(std::sync::atomic::Ordering::Relaxed),
+            count: self.cache.len(),
+            used_size: self.cache.weight(),
+            hits: self.cache.hits(),
+            misses: self.cache.misses(),
         }
     }
 }
@@ -304,22 +176,16 @@ pub fn create_thumbnail(
 }
 
 /// Wraps create_thumbnail, making it async, without blocking the Tokio runtime.
-/// Passes the cache key through to avoid cloning (because passing a reference into
-/// the spawned task is not possible).
-async fn spawn_create_thumbnail(mut key: CacheKey) -> (Result<Bytes>, CacheKey) {
+async fn spawn_create_thumbnail(key: CacheKey) -> Result<Bytes> {
     let path = key.path;
     let resolution = key.resolution;
     let thumbnail_type = key.thumbnail_type;
 
-    let (thumbnail_result, path) = tokio_rayon::spawn(move || {
+    tokio_rayon::spawn(move || {
         let thumbnail = create_thumbnail(&path, resolution, thumbnail_type);
-        (thumbnail, path)
+        thumbnail
     })
-    .await;
-
-    key.path = path;
-
-    (thumbnail_result, key)
+    .await
 }
 
 /// Returns a hash describing the source image, if it is thumbnailable,
