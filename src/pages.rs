@@ -98,8 +98,8 @@ impl ResponseError for FiledlError {
 #[routes]
 #[get("/index.html")]
 #[get("/")]
-async fn index_redirect() -> impl Responder {
-    Redirect::to("/download").permanent()
+async fn index_redirect(app: web::Data<Arc<AppData>>) -> impl Responder {
+    Redirect::to(app.get_download_base_url().to_owned()).permanent()
 }
 
 #[get("/admin")]
