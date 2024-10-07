@@ -346,7 +346,7 @@ impl AppData {
         use futures::StreamExt;
 
         // 1. Optimistic check of the metadata, allowing us to reject duplicate uploads early.
-        if let Ok(_) = self.object_from_id(&object_id).await {
+        if self.object_from_id(&object_id).await.is_ok() {
             return Err(FiledlError::ObjectExists { object_id });
         }
 

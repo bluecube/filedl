@@ -181,11 +181,7 @@ async fn spawn_create_thumbnail(key: CacheKey) -> Result<Bytes> {
     let resolution = key.resolution;
     let thumbnail_type = key.thumbnail_type;
 
-    tokio_rayon::spawn(move || {
-        let thumbnail = create_thumbnail(&path, resolution, thumbnail_type);
-        thumbnail
-    })
-    .await
+    tokio_rayon::spawn(move || create_thumbnail(&path, resolution, thumbnail_type)).await
 }
 
 /// Returns a hash describing the source image, if it is thumbnailable,
