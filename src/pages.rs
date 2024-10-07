@@ -170,10 +170,10 @@ async fn download_object(
     path: web::Path<String>,
     query: web::Query<DownloadQuery>,
     req: HttpRequest,
-) -> Result<Either<NamedFile, HttpResponse>> {
+) -> Result<HttpResponse> {
     let object_path = path.into_inner();
-    if query.mode == DownloadMode::Assets {
-        asset_download(&app, &object_path, &req).map(Either::Right)
+    Ok(if query.mode == DownloadMode::Assets {
+        asset_download(&app, &object_path, &req)?
     } else {
         let resolved_object = app
             .resolve_object(object_path.as_str(), query.key.as_deref())
@@ -190,38 +190,35 @@ async fn download_object(
                         select_thumbnail_type(&req),
                         items,
                     )
-                    .await
-                    .map(Either::Right)
+                    .await?
                 }
-                DownloadMode::Download => Err(FiledlError::UnimplementedZipDownload),
+                DownloadMode::Download => return Err(FiledlError::UnimplementedZipDownload),
                 DownloadMode::Assets => unreachable!("Was handled before"),
-                _ => Err(FiledlError::BadDownloadMode),
+                _ => return Err(FiledlError::BadDownloadMode),
             },
             _ => match query.mode {
-                DownloadMode::Default => file_download(resolved_object, false)
-                    .await
-                    .map(Either::Left),
-                DownloadMode::Download => {
-                    file_download(resolved_object, true).await.map(Either::Left)
+                DownloadMode::Default => file_download(resolved_object, false, &req).await?,
+                DownloadMode::Download => file_download(resolved_object, true, &req).await?,
+                DownloadMode::Thumbnail => {
+                    thumb_download(
+                        resolved_object,
+                        query.size,
+                        query.cache_hash.as_deref(),
+                        query.thumbnail_type,
+                    )
+                    .await?
                 }
-                DownloadMode::Thumbnail => thumb_download(
-                    resolved_object,
-                    query.size,
-                    query.cache_hash.as_deref(),
-                    query.thumbnail_type,
-                )
-                .await
-                .map(Either::Right),
                 DownloadMode::Assets => unreachable!("Was handled before"),
             },
         }
-    }
+    })
 }
 
 async fn file_download(
     resolved_object: ResolvedObject<'_>,
     force_download: bool,
-) -> Result<NamedFile> {
+    req: &HttpRequest,
+) -> Result<HttpResponse> {
     let mut nf = NamedFile::open_async(resolved_object.path()).await?;
 
     if force_download {
@@ -230,7 +227,7 @@ async fn file_download(
         nf = nf.set_content_disposition(cd);
     }
 
-    Ok(nf)
+    Ok(nf.respond_to(req))
 }
 
 async fn thumb_download<'a>(
