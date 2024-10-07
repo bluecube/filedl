@@ -6,16 +6,19 @@ use crate::{
 };
 use actix_files::NamedFile;
 use actix_web::{
+    body::{BoxBody, EitherBody},
     get,
     http::{header, StatusCode},
     put, routes,
     web::{self, Payload, Redirect},
-    Either, HttpRequest, HttpResponse, Responder, ResponseError,
+    CustomizeResponder, HttpRequest, HttpResponse, Responder, ResponseError,
 };
 use horrorshow::Template as _;
 use memchr::memmem;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{panic, sync::Arc};
+use tokio::task::spawn_blocking;
+use walkdir::WalkDir;
 
 pub const PROJECT_NAME: &str = env!("CARGO_PKG_NAME");
 pub const PROJECT_REPO: &str = env!("CARGO_PKG_REPOSITORY");
@@ -192,7 +195,7 @@ async fn download_object(
                     )
                     .await?
                 }
-                DownloadMode::Download => return Err(FiledlError::UnimplementedZipDownload),
+                DownloadMode::Download => zip_download(&req, resolved_object).await?,
                 DownloadMode::Assets => unreachable!("Was handled before"),
                 _ => return Err(FiledlError::BadDownloadMode),
             },
@@ -297,6 +300,85 @@ async fn dir_listing(
             templates::DirListing::new_wrapped(app, object_path, query_key, thumbnail_type, items)
                 .into_string()?,
         ))
+}
+
+/// Returns the content of resolved_object zipped using zippity.
+/// Because of the hairy zippity response type, we directly convert to the response and don't bother
+/// returning the Responder.
+async fn zip_download<'a>(
+    req: &HttpRequest,
+    resolved_object: ResolvedObject<'a>,
+) -> Result<HttpResponse> {
+    let walkdir = WalkDir::new(resolved_object.path());
+    let dir_path = resolved_object.path().to_owned();
+    let zip_file_name = format!(
+        "{}.zip",
+        dir_path
+            .file_name()
+            .expect("Zip downloads should only work for directories with normal name")
+            .to_string_lossy()
+    );
+
+    let builder_join_handle = spawn_blocking(
+        move || -> Result<zippity::Builder<zippity::TokioFileEntry>> {
+            let mut builder = zippity::Builder::new();
+            let dir_name = dir_path
+                .file_name()
+                .expect("Zip downloads should only work for directories with normal name")
+                .to_string_lossy();
+
+            for entry in walkdir {
+                let entry = entry.map_err(std::io::Error::from)?;
+
+                if !entry.file_type().is_file() {
+                    continue;
+                }
+
+                let metadata = entry.metadata().map_err(std::io::Error::from)?;
+                let path = entry.into_path();
+                let entry_name = format!(
+                    "{}/{}",
+                    &dir_name,
+                    path.strip_prefix(&dir_path)
+                        .expect("The prefix is always taken from the path. (Symlinks!!!!?)")
+                        .display()
+                );
+                builder.add_entry_with_size(entry_name, path, metadata.len())?;
+            }
+
+            Ok(builder)
+        },
+    );
+
+    let builder = match builder_join_handle.await {
+        Ok(builder) => builder?,
+        Err(e) => {
+            panic::resume_unwind(
+                e.try_into_panic()
+                    .expect("The builder task should never be cancelled"),
+            );
+        }
+    };
+
+    let responder = builder.build().into_responder();
+
+    let response = neutralize_customize_responder(
+        responder
+            .customize()
+            .append_header(header::ContentDisposition::attachment(zip_file_name)),
+        req,
+    );
+    Ok(response)
+}
+
+fn neutralize_customize_responder<T>(r: CustomizeResponder<T>, req: &HttpRequest) -> HttpResponse
+where
+    T: Responder<Body = BoxBody>,
+{
+    r.respond_to(req).map_body(|_, body| match body {
+        EitherBody::Left { body } => body,
+        EitherBody::Right { body } => body,
+    })
 }
 
 /// Not found handler used for default route

@@ -14,8 +14,6 @@ pub enum FiledlError {
     BadDownloadMode,
     #[error("Directory traversal in path {path}")]
     DirectoryTraversal { path: String },
-    #[error("Zip downloads are unimplemented")]
-    UnimplementedZipDownload,
     #[error("Template error: {source}")]
     TemplateError {
         #[from]
@@ -33,6 +31,12 @@ pub enum FiledlError {
         #[from]
         #[source]
         source: figment::Error,
+    },
+    #[error("Error when creating zip file: {source}")]
+    ZippityError {
+        #[from]
+        #[source]
+        source: zippity::Error,
     },
     #[error("IO error: {source}")]
     IOError {
