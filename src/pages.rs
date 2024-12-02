@@ -211,7 +211,7 @@ async fn download_object(
                     )
                     .await?
                 }
-                DownloadMode::Assets => unreachable!("Was handled before"),
+                _ => unreachable!("Was handled before"),
             },
         }
     })
@@ -261,6 +261,7 @@ async fn thumb_download<'a>(
 }
 
 fn asset_download(app: &AppData, object_path: &str, req: &HttpRequest) -> Result<HttpResponse> {
+    // icons.css is generated on the fly, so we handle it separately
     if object_path == "icons.css" {
         return Ok(HttpResponse::Ok()
             .insert_header(header::ContentType(mime::TEXT_CSS))
