@@ -42,7 +42,8 @@ pub struct Object {
 
 #[derive(Debug)]
 pub struct ResolvedObject<'a> {
-    path: PathBuf,
+    object_path: String,
+    storage_path: PathBuf,
     object: RwLockReadGuard<'a, Object>,
     metadata: Metadata,
     thumbnails: &'a CachedThumbnails,
@@ -50,22 +51,35 @@ pub struct ResolvedObject<'a> {
 
 impl<'a> ResolvedObject<'a> {
     async fn new(
-        path: PathBuf,
+        object_path: String,
+        storage_path: PathBuf,
         object: RwLockReadGuard<'a, Object>,
         thumbnails: &'a CachedThumbnails,
     ) -> Result<Self> {
-        let metadata = fs::metadata(&path).await?;
+        let metadata = fs::metadata(&storage_path).await?;
 
         Ok(ResolvedObject {
-            path,
+            object_path,
+            storage_path,
             object,
             metadata,
             thumbnails,
         })
     }
 
-    pub fn path(&self) -> &Path {
-        &self.path
+    /// Returns the path under which this object was accessed.
+    pub fn object_path(&self) -> &str {
+        &self.object_path
+    }
+
+    /// Returns the filesystem path where the object's data can be found.
+    pub fn storage_path(&self) -> &Path {
+        &self.storage_path
+    }
+
+    /// Returns the filesystem path where the object's data can be found.
+    pub fn into_storage_path(self) -> PathBuf {
+        self.storage_path
     }
 
     pub fn metadata(&self) -> &Metadata {
@@ -73,7 +87,7 @@ impl<'a> ResolvedObject<'a> {
     }
 
     pub fn item_type(&self) -> ItemType {
-        ItemType::new(&self.path, &self.metadata)
+        ItemType::new(&self.storage_path, &self.metadata)
     }
 
     pub async fn into_thumbnail(
@@ -82,14 +96,19 @@ impl<'a> ResolvedObject<'a> {
         thumbnail_type: ThumbnailType,
     ) -> Result<(Bytes, String)> {
         self.thumbnails
-            .get(self.path, &self.metadata, resolution, thumbnail_type)
+            .get(
+                self.storage_path,
+                &self.metadata,
+                resolution,
+                thumbnail_type,
+            )
             .await
     }
 
     pub async fn list(&self) -> Result<Vec<DirListingItem>> {
         let mut result = Vec::new();
 
-        let mut dir = fs::read_dir(&self.path).await?;
+        let mut dir = fs::read_dir(&self.storage_path).await?;
         while let Some(entry) = dir.next_entry().await? {
             if let Some(item) = DirListingItem::with_dir_entry(entry).await? {
                 result.push(item);
@@ -255,15 +274,15 @@ impl AppData {
         self.thumbnails.cache_stats()
     }
 
-    fn get_owned_object_path(&self, object_id: &str) -> PathBuf {
+    fn get_owned_object_storage_path(&self, object_id: &str) -> PathBuf {
         let mut path = self.config.data_path.join("owned_data");
         path.push(object_id);
         path
     }
 
-    fn get_object_path(&self, object_id: &str, obj: &Object) -> PathBuf {
+    fn get_object_storage_path(&self, object_id: &str, obj: &Object) -> PathBuf {
         match &obj.ownership {
-            ObjectOwnership::Owned => self.get_owned_object_path(object_id),
+            ObjectOwnership::Owned => self.get_owned_object_storage_path(object_id),
             ObjectOwnership::Linked(link_path) => {
                 link_path.to_path(&self.config.linked_objects_root)
             }
@@ -276,7 +295,7 @@ impl AppData {
 
     pub async fn resolve_object<'a>(
         &'a self,
-        path: &str,
+        path: String,
         key: Option<&str>,
     ) -> Result<ResolvedObject<'a>> {
         let (object_id, subobject_path) = match path.split_once('/') {
@@ -288,7 +307,7 @@ impl AppData {
                 }
                 (object_id, Some(subobject_path))
             }
-            None => (path, None),
+            None => (path.as_str(), None),
         };
 
         let obj = self.object_from_id(object_id).await?;
@@ -305,12 +324,12 @@ impl AppData {
 
         // TODO: Handle expiry?
 
-        let mut object_fs_path = self.get_object_path(object_id, &obj);
+        let mut object_fs_path = self.get_object_storage_path(object_id, &obj);
         if let Some(subobject_path) = subobject_path {
             object_fs_path.push(subobject_path);
         }
 
-        let result = ResolvedObject::new(object_fs_path, obj, &self.thumbnails).await?;
+        let result = ResolvedObject::new(path, object_fs_path, obj, &self.thumbnails).await?;
         Ok(result)
     }
 
@@ -323,7 +342,7 @@ impl AppData {
         let mut result = Vec::new();
 
         for (key, obj) in self.objects.read().await.iter() {
-            let path = self.get_object_path(key, obj);
+            let path = self.get_object_storage_path(key, obj);
             let metadata = fs::metadata(&path).await?;
             if obj.unlisted_key.is_none() {
                 result.push(DirListingItem::with_metadata(
@@ -384,7 +403,7 @@ impl AppData {
 
         tokio::fs::rename(
             temp_path.keep().unwrap(),
-            self.get_owned_object_path(&object_id),
+            self.get_owned_object_storage_path(&object_id),
         )
         .await?; // TODO: What happens if this fails?
 

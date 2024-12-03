@@ -179,7 +179,7 @@ async fn download_object(
         asset_download(&app, &object_path, &req)?
     } else {
         let resolved_object = app
-            .resolve_object(object_path.as_str(), query.key.as_deref())
+            .resolve_object(object_path, query.key.as_deref())
             .await?;
 
         match resolved_object.item_type() {
@@ -188,7 +188,7 @@ async fn download_object(
                     let items = resolved_object.list().await?;
                     dir_listing(
                         &app,
-                        &object_path,
+                        resolved_object.object_path(),
                         query.key.as_deref(),
                         select_thumbnail_type(&req),
                         items,
@@ -222,7 +222,7 @@ async fn file_download(
     force_download: bool,
     req: &HttpRequest,
 ) -> Result<HttpResponse> {
-    let mut nf = NamedFile::open_async(resolved_object.path()).await?;
+    let mut nf = NamedFile::open_async(resolved_object.storage_path()).await?;
 
     if force_download {
         let mut cd = nf.content_disposition().clone();
@@ -310,8 +310,8 @@ async fn zip_download<'a>(
     req: &HttpRequest,
     resolved_object: ResolvedObject<'a>,
 ) -> Result<HttpResponse> {
-    let walkdir = WalkDir::new(resolved_object.path());
-    let dir_path = resolved_object.path().to_owned();
+    let walkdir = WalkDir::new(resolved_object.storage_path());
+    let dir_path = resolved_object.storage_path().to_owned();
     let zip_file_name = format!(
         "{}.zip",
         dir_path
