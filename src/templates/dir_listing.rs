@@ -131,7 +131,7 @@ impl<'a> DirListing<'a> {
     }
 }
 
-impl<'a> RenderOnce for DirListing<'a> {
+impl RenderOnce for DirListing<'_> {
     fn render_once(self, tmpl: &mut horrorshow::prelude::TemplateBuffer<'_>) {
         let self_url = ItemUrl::without_item(&self);
         tmpl << html!(
@@ -210,7 +210,7 @@ struct ItemUrl<'a> {
     unlisted_key: Option<&'a str>,
 }
 
-impl<'a> Display for ItemUrl<'a> {
+impl Display for ItemUrl<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.download_base_url)?;
         if !self.directory_path.is_empty() {
@@ -227,7 +227,7 @@ impl<'a> Display for ItemUrl<'a> {
     }
 }
 
-impl<'a> RenderOnce for ItemUrl<'a> {
+impl RenderOnce for ItemUrl<'_> {
     fn render_once(self, tmpl: &mut TemplateBuffer<'_>) {
         tmpl << format_args!("{}", self);
     }
@@ -282,7 +282,7 @@ struct ThumbnailUrl<'a> {
     cache_hash: Option<u64>,
 }
 
-impl<'a> Display for ThumbnailUrl<'a> {
+impl Display for ThumbnailUrl<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.item)?;
         f.write_char(self.item.next_qs_separator())?;
@@ -299,7 +299,7 @@ impl<'a> Display for ThumbnailUrl<'a> {
     }
 }
 
-impl<'a> RenderOnce for ThumbnailUrl<'a> {
+impl RenderOnce for ThumbnailUrl<'_> {
     fn render_once(self, tmpl: &mut TemplateBuffer<'_>) {
         tmpl << format_args!("{}", self);
     }
@@ -319,7 +319,7 @@ impl<'a> Title<'a> {
     }
 }
 
-impl<'a> RenderOnce for Title<'a> {
+impl RenderOnce for Title<'_> {
     fn render_once(self, tmpl: &mut TemplateBuffer<'_>) {
         if !self.directory_path.is_empty() {
             tmpl << format_args!("{} - {}", self.directory_path, self.app_name);

@@ -12,7 +12,7 @@ pub struct Page<'a, T, C> {
     pub content: C,
 }
 
-impl<'a, T: RenderOnce, C: RenderOnce> RenderOnce for Page<'a, T, C> {
+impl<T: RenderOnce, C: RenderOnce> RenderOnce for Page<'_, T, C> {
     fn render_once(self, tmpl: &mut TemplateBuffer<'_>) {
         tmpl << html!(
             : doctype::HTML;

@@ -17,7 +17,7 @@ struct AssetUrl<'a> {
     cache_hash: &'a str,
 }
 
-impl<'a> Display for AssetUrl<'a> {
+impl Display for AssetUrl<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -27,7 +27,7 @@ impl<'a> Display for AssetUrl<'a> {
     }
 }
 
-impl<'a> RenderOnce for AssetUrl<'a> {
+impl RenderOnce for AssetUrl<'_> {
     fn render_once(self, tmpl: &mut TemplateBuffer<'_>) {
         tmpl << format_args!("{}", self);
     }
