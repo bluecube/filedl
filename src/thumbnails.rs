@@ -76,10 +76,10 @@ impl ThumbnailType {
         }
     }
 
-    fn image_output_format(&self) -> image::ImageOutputFormat {
+    fn image_output_format(&self) -> image::ImageFormat {
         match self {
-            ThumbnailType::Jpeg => image::ImageOutputFormat::Jpeg(85),
-            ThumbnailType::Avif => image::ImageOutputFormat::Avif,
+            ThumbnailType::Jpeg => image::ImageFormat::Jpeg,
+            ThumbnailType::Avif => image::ImageFormat::Avif,
         }
     }
 }

@@ -24,7 +24,7 @@ figment = { version = "0.10.11", features = ["toml", "env"] }
 futures = "0.3.30"
 horrorshow = "0.8.4"
 humansize = "2.1.3"
-image = { version = "0.24.7", features = ["avif"] }
+image = { version = "0.25.5", features = ["avif"] }
 kamadak-exif = "0.5.5"
 log = "0.4.20"
 memchr = "2.7.4"
