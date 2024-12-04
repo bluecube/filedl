@@ -204,7 +204,7 @@ pub fn is_thumbnailable(path: &Path) -> bool {
 }
 
 fn open_image(path: &Path) -> Result<DynamicImage> {
-    let mut reader = image::io::Reader::open(path)?;
+    let mut reader = image::ImageReader::open(path)?;
     reader.no_limits();
     Ok(reader.decode()?)
 }
