@@ -225,12 +225,24 @@ async fn file_download(
     let mut nf = NamedFile::open_async(resolved_object.storage_path()).await?;
 
     if force_download {
-        let mut cd = nf.content_disposition().clone();
-        cd.disposition = header::DispositionType::Attachment;
-        nf = nf.set_content_disposition(cd);
+        nf = change_named_file_content_disposition(nf, header::DispositionType::Attachment);
+    } else {
+        let ct = nf.content_type();
+        if *ct == mime::APPLICATION_PDF {
+            nf = change_named_file_content_disposition(nf, header::DispositionType::Inline);
+        }
     }
 
     Ok(nf.respond_to(req))
+}
+
+fn change_named_file_content_disposition(
+    nf: NamedFile,
+    disposition: header::DispositionType,
+) -> NamedFile {
+    let mut cd = nf.content_disposition().clone();
+    cd.disposition = disposition;
+    nf.set_content_disposition(cd)
 }
 
 async fn thumb_download<'a>(
