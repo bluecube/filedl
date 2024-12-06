@@ -310,23 +310,19 @@ async fn zip_download<'a>(
     req: &HttpRequest,
     resolved_object: ResolvedObject<'a>,
 ) -> Result<HttpResponse> {
-    let walkdir = WalkDir::new(resolved_object.storage_path());
-    let dir_path = resolved_object.storage_path().to_owned();
-    let zip_file_name = format!(
-        "{}.zip",
-        dir_path
-            .file_name()
-            .expect("Zip downloads should only work for directories with normal name")
-            .to_string_lossy()
-    );
+    let dir_name = match resolved_object.object_path().rsplit_once('/') {
+        Some(pair) => pair.1,
+        None => resolved_object.object_path(),
+    };
+    let zip_file_name = format!("{}.zip", dir_name);
+    let dir_name = dir_name.to_owned();
+    let dir_path = resolved_object.into_storage_path();
 
     let builder_join_handle = spawn_blocking(
         move || -> Result<zippity::Builder<zippity::TokioFileEntry>> {
+            let walkdir = WalkDir::new(&dir_path);
+
             let mut builder = zippity::Builder::new();
-            let dir_name = dir_path
-                .file_name()
-                .expect("Zip downloads should only work for directories with normal name")
-                .to_string_lossy();
 
             for entry in walkdir {
                 let entry = entry.map_err(std::io::Error::from)?;
@@ -339,7 +335,7 @@ async fn zip_download<'a>(
                 let path = entry.into_path();
                 let entry_name = format!(
                     "{}/{}",
-                    &dir_name,
+                    dir_name,
                     path.strip_prefix(&dir_path)
                         .expect("The prefix is always taken from the path. (Symlinks!!!!?)")
                         .display()
