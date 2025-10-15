@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    error::{FiledlError, Result},
+    error::{FiledlError, Result, StartupError},
     storage::Storage,
     templates::util::url_encode,
     thumbnails::{is_thumbnailable, CacheStats, CachedThumbnails, ThumbnailType},
@@ -230,7 +230,7 @@ pub struct AppData {
 }
 
 impl AppData {
-    pub fn with_config(config: Config) -> Result<Self> {
+    pub fn with_config(config: Config) -> std::result::Result<Self, StartupError> {
         let path = config.data_path.join("metadata.json");
         let objects = RwLock::new(Storage::new(path)?);
         let thumbnail_cache_size = config.thumbnail_cache_size;

@@ -6,16 +6,15 @@ mod storage;
 mod templates;
 mod thumbnails;
 
-use crate::pages::configure_pages;
+use crate::{error::StartupError, pages::configure_pages};
 
 use actix_web::{http::header, middleware, web::Data, App, HttpServer};
 use app_data::AppData;
 use config::Config;
-use error::Result;
 use std::sync::Arc;
 
 #[actix_web::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), StartupError> {
     env_logger::init();
 
     let config = Config::get()?;

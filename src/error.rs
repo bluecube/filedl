@@ -26,12 +26,6 @@ pub enum FiledlError {
         #[source]
         source: image::error::ImageError,
     },
-    #[error("Error when reading configuration: {source}")]
-    ConfigError {
-        #[from]
-        #[source]
-        source: figment::Error,
-    },
     #[error("Error when creating zip file: {source}")]
     ZippityError {
         #[from]
@@ -49,5 +43,21 @@ pub enum FiledlError {
         #[from]
         #[source]
         source: actix_web::error::PayloadError,
+    },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum StartupError {
+    #[error("Error when reading configuration: {source}")]
+    ConfigError {
+        #[from]
+        #[source]
+        source: figment::Error,
+    },
+    #[error("IO error: {source}")]
+    IOError {
+        #[from]
+        #[source]
+        source: std::io::Error,
     },
 }

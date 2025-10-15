@@ -80,7 +80,7 @@ impl<T: Serialize + DeserializeOwned> Storage<T> {
         self.dirty
     }
 
-    pub fn iter(&self) -> Iterator<T> {
+    pub fn iter(&self) -> Iterator<'_, T> {
         self.map.iter()
     }
 

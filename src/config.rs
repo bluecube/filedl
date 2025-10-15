@@ -8,7 +8,7 @@ use figment::{
 };
 use serde::Deserialize;
 
-use crate::error::Result;
+use crate::error::StartupError;
 
 fn default_bind_address() -> String {
     "localhost".into()
@@ -71,7 +71,7 @@ struct Cli {
 }
 
 impl Config {
-    pub fn get() -> Result<Config> {
+    pub fn get() -> Result<Config, StartupError> {
         let mut figment = Figment::new();
 
         let cli = Cli::parse();

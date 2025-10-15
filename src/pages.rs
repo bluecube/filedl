@@ -106,7 +106,7 @@ async fn index_redirect(app: web::Data<Arc<AppData>>) -> impl Responder {
 }
 
 #[get("/admin")]
-async fn admin(app: web::Data<Arc<AppData>>) -> impl Responder {
+async fn admin(_app: web::Data<Arc<AppData>>) -> impl Responder {
     "TODO"
 }
 
