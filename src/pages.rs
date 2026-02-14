@@ -16,9 +16,7 @@ use actix_web::{
 use horrorshow::Template as _;
 use memchr::memmem;
 use serde::{Deserialize, Serialize};
-use std::{panic, sync::Arc};
-use tokio::task::spawn_blocking;
-use walkdir::WalkDir;
+use std::sync::Arc;
 
 pub const PROJECT_NAME: &str = env!("CARGO_PKG_NAME");
 pub const PROJECT_REPO: &str = env!("CARGO_PKG_REPOSITORY");
@@ -195,7 +193,7 @@ async fn download_object(
                     )
                     .await?
                 }
-                DownloadMode::Download => zip_download(&req, resolved_object).await?,
+                DownloadMode::Download => zip_download(&app, &req, resolved_object).await?,
                 DownloadMode::Assets => unreachable!("Was handled before"),
                 _ => return Err(FiledlError::BadDownloadMode),
             },
@@ -319,57 +317,25 @@ async fn dir_listing(
 /// Because of the hairy zippity response type, we directly convert to the response and don't bother
 /// returning the Responder.
 async fn zip_download<'a>(
+    app: &AppData,
     req: &HttpRequest,
     resolved_object: ResolvedObject<'a>,
 ) -> Result<HttpResponse> {
-    let dir_name = match resolved_object.object_path().rsplit_once('/') {
-        Some(pair) => pair.1,
-        None => resolved_object.object_path(),
-    };
+    let dir_name = resolved_object.object_path().rsplit('/').next().unwrap();
     let zip_file_name = format!("{}.zip", dir_name);
     let dir_name = dir_name.to_owned();
-    let dir_path = resolved_object.into_storage_path();
+    let dir_path = std::fs::canonicalize(resolved_object.storage_path())?;
 
-    let builder_join_handle = spawn_blocking(
-        move || -> Result<zippity::Builder<zippity::TokioFileEntry>> {
-            let walkdir = WalkDir::new(&dir_path);
-
-            let mut builder = zippity::Builder::new();
-
-            for entry in walkdir {
-                let entry = entry.map_err(std::io::Error::from)?;
-
-                if !entry.file_type().is_file() {
-                    continue;
-                }
-
-                let metadata = entry.metadata().map_err(std::io::Error::from)?;
-                let path = entry.into_path();
-                let entry_name = format!(
-                    "{}/{}",
-                    dir_name,
-                    path.strip_prefix(&dir_path)
-                        .expect("The prefix is always taken from the path. (Symlinks!!!!?)")
-                        .display()
-                );
-                builder.add_entry_with_size(entry_name, path, metadata.len())?;
-            }
-
-            Ok(builder)
-        },
-    );
-
-    let builder = match builder_join_handle.await {
-        Ok(builder) => builder?,
-        Err(e) => {
-            panic::resume_unwind(
-                e.try_into_panic()
-                    .expect("The builder task should never be cancelled"),
-            );
-        }
-    };
+    let mut builder = zippity::Builder::new();
+    builder.system_time_timezone(app.get_display_timezone().clone());
+    builder
+        .add_directory_recursive(dir_path, Some(&dir_name))
+        .await?;
 
     let responder = builder.build().into_responder();
+
+    // TODO: CRC caching
+    // TODO: Caching & ETag!
 
     let response = neutralize_customize_responder(
         responder

@@ -27,10 +27,10 @@ pub enum FiledlError {
         source: image::error::ImageError,
     },
     #[error("Error when creating zip file: {source}")]
-    ZippityError {
+    ZippityBuildError {
         #[from]
         #[source]
-        source: zippity::Error,
+        source: zippity::AddDirectoryRecursiveError,
     },
     #[error("IO error: {source}")]
     IOError {
