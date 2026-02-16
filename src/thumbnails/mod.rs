@@ -3,9 +3,10 @@ mod image_thumbnail;
 
 use std::{fmt::Display, hash::Hash, io::Cursor, path::Path};
 
-use actix_web::web::Bytes;
+use actix_web::{HttpRequest, http::header, web::Bytes};
 use image::{ImageBuffer, ImageFormat, Pixel, Rgb, RgbImage, RgbaImage};
 use image_thumbnail::create_image_thumbnail;
+use memchr::memmem;
 use mime::Mime;
 use serde::{Deserialize, Serialize};
 
@@ -31,6 +32,18 @@ impl Display for ThumbnailType {
 }
 
 impl ThumbnailType {
+    pub fn from_request(req: &HttpRequest) -> ThumbnailType {
+        if req
+            .headers()
+            .get(header::ACCEPT)
+            .is_some_and(|value| memmem::find(value.as_bytes(), b"image/avif").is_some())
+        {
+            ThumbnailType::Avif
+        } else {
+            ThumbnailType::Jpeg
+        }
+    }
+
     pub fn mime(&self) -> Mime {
         match self {
             ThumbnailType::Jpeg => mime::IMAGE_JPEG,

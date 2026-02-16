@@ -6,12 +6,12 @@ use crate::{
 };
 use actix_files::NamedFile;
 use actix_web::{
+    CustomizeResponder, HttpRequest, HttpResponse, Responder, ResponseError,
     body::{BoxBody, EitherBody},
     get,
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     put, routes,
     web::{self, Payload, Redirect},
-    CustomizeResponder, HttpRequest, HttpResponse, Responder, ResponseError,
 };
 use horrorshow::Template as _;
 use memchr::memmem;
@@ -40,7 +40,7 @@ struct DownloadQuery {
     #[serde(default)]
     size: u32,
     #[serde(default)]
-    thumbnail_type: ThumbnailType,
+    thumbnail_type: Option<ThumbnailType>,
     #[serde(default)]
     cache_hash: Option<String>,
 }
@@ -127,18 +127,6 @@ async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
     HttpResponse::Ok().json(app.get_thumbnail_cache_stats().await)
 }
 
-fn select_thumbnail_type(req: &HttpRequest) -> ThumbnailType {
-    if req
-        .headers()
-        .get(header::ACCEPT)
-        .is_some_and(|value| memmem::find(value.as_bytes(), b"image/avif").is_some())
-    {
-        ThumbnailType::Avif
-    } else {
-        ThumbnailType::Jpeg
-    }
-}
-
 fn select_content_encoding(req: &HttpRequest) -> ContentEncoding {
     if req
         .headers()
@@ -152,16 +140,10 @@ fn select_content_encoding(req: &HttpRequest) -> ContentEncoding {
 }
 
 #[get("/download")]
-async fn download_root(app: web::Data<Arc<AppData>>, req: HttpRequest) -> Result<HttpResponse> {
+async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(
-        templates::DirListing::new_wrapped(
-            &app,
-            "",
-            None,
-            select_thumbnail_type(&req),
-            app.list_objects().await?,
-        )
-        .into_string()?,
+        templates::DirListing::new_wrapped(&app, "", None, app.list_objects().await?)
+            .into_string()?,
     ))
 }
 
@@ -188,7 +170,6 @@ async fn download_object(
                         &app,
                         resolved_object.object_path(),
                         query.key.as_deref(),
-                        select_thumbnail_type(&req),
                         items,
                     )
                     .await?
@@ -205,7 +186,9 @@ async fn download_object(
                         resolved_object,
                         query.size,
                         query.cache_hash.as_deref(),
-                        query.thumbnail_type,
+                        query
+                            .thumbnail_type
+                            .unwrap_or_else(|| ThumbnailType::from_request(&req)),
                     )
                     .await?
                 }
@@ -301,15 +284,13 @@ async fn dir_listing(
     app: &AppData,
     object_path: &str,
     query_key: Option<&str>,
-    thumbnail_type: ThumbnailType,
     items: Vec<DirListingItem>,
 ) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok()
         .content_type(mime::TEXT_HTML_UTF_8)
         .insert_header(cache_control(None))
         .body(
-            templates::DirListing::new_wrapped(app, object_path, query_key, thumbnail_type, items)
-                .into_string()?,
+            templates::DirListing::new_wrapped(app, object_path, query_key, items).into_string()?,
         ))
 }
 
