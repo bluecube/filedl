@@ -10,7 +10,7 @@ use chrono_tz::Tz;
 use horrorshow::{RenderOnce, TemplateBuffer, html, labels_sep_by};
 use humansize::{BINARY, format_size};
 
-use crate::app_data::{AppData, DirListingItem};
+use crate::app_data::{AppData, DirListingItem, ItemType};
 
 pub struct DirListing<'a> {
     app_name: &'a str,
@@ -70,13 +70,13 @@ impl<'a> DirListing<'a> {
             li(class = format_args!("{}", item.item_type)) {
                 a(class = format_args!(
                     "main-link{}",
-                    if item.item_type.is_thumbnailable() {
+                    if item.is_thumbnailable {
                         ""
                     } else {
                         " no-thumbnail"
                     }
                     ), href = url.clone()) {
-                    @ if item.item_type.is_thumbnailable() {
+                    @ if item.is_thumbnailable {
                         img(
                             src = url.thumbnail(64, None),
                             srcset = labels_sep_by!(
@@ -92,14 +92,14 @@ impl<'a> DirListing<'a> {
                     }
                     span(class = "underlined") {
                         : item.name.as_ref();
-                        @ if item.item_type.is_directory() {
+                        @ if item.item_type == ItemType::Directory {
                             : "/";
                         }
                     }
                 }
                 div(class = "details-outer") {
                     div(class = "details-inner") {
-                        @ if !item.item_type.is_directory() {
+                        @ if item.item_type != ItemType::Directory {
                             span(class="size") {
                                 : format_size(item.file_size, BINARY)
                             }

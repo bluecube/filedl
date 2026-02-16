@@ -3,13 +3,13 @@ use crate::{
     error::{FiledlError, Result, StartupError},
     storage::Storage,
     templates::util::url_encode,
-    thumbnails::{is_thumbnailable, CacheStats, CachedThumbnails, ThumbnailType},
+    thumbnails::{CacheStats, CachedThumbnails, ThumbnailType, is_thumbnailable},
 };
 use actix_web::web::Bytes;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use futures::{pin_mut, Stream};
-use rand::{thread_rng, RngCore};
+use futures::{Stream, pin_mut};
+use rand::{RngCore, thread_rng};
 use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -87,7 +87,7 @@ impl<'a> ResolvedObject<'a> {
     }
 
     pub fn item_type(&self) -> ItemType {
-        ItemType::new(&self.storage_path, &self.metadata)
+        ItemType::new(&self.metadata)
     }
 
     pub async fn into_thumbnail(
@@ -119,31 +119,20 @@ impl<'a> ResolvedObject<'a> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ItemType {
     Directory,
-    Image,
     /// File of other/unknown type
     File,
 }
 
 impl ItemType {
-    pub fn new(path: &Path, metadata: &Metadata) -> Self {
-        if is_thumbnailable(path) {
-            ItemType::Image
-        } else if metadata.is_dir() {
+    pub fn new(metadata: &Metadata) -> Self {
+        if metadata.is_dir() {
             ItemType::Directory
         } else {
             ItemType::File
         }
-    }
-
-    pub fn is_directory(&self) -> bool {
-        matches!(self, ItemType::Directory)
-    }
-
-    pub fn is_thumbnailable(&self) -> bool {
-        matches!(self, ItemType::Image)
     }
 }
 
@@ -189,6 +178,7 @@ fn get_source_hash(path: &Path, metadata: &Metadata) -> Option<u64> {
 pub struct DirListingItem {
     pub name: Arc<str>,
     pub item_type: ItemType,
+    pub is_thumbnailable: bool,
     pub file_size: u64,
     pub modified: Option<DateTime<Utc>>,
     pub source_hash: Option<u64>,
@@ -209,10 +199,10 @@ impl DirListingItem {
     }
 
     fn with_metadata(path: &Path, name: Arc<str>, metadata: &Metadata) -> Self {
-        let item_type = ItemType::new(path, metadata);
         DirListingItem {
             name,
-            item_type,
+            item_type: ItemType::new(metadata),
+            is_thumbnailable: is_thumbnailable(path),
             file_size: metadata.len(),
             modified: metadata.modified().ok().map(Into::into),
             source_hash: get_source_hash(path, metadata),
