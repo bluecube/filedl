@@ -1,4 +1,4 @@
-FROM rust:1.81-alpine AS builder
+FROM rust:1.93.1-alpine AS builder
 ARG RUSTFLAGS
 
 RUN apk add musl-dev nasm
