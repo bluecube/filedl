@@ -9,7 +9,7 @@ use actix_web::web::Bytes;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use futures::{Stream, pin_mut};
-use rand::{RngCore, thread_rng};
+use rand::{Rng as _, rng};
 use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -224,7 +224,7 @@ impl AppData {
         let path = config.data_path.join("metadata.json");
         let objects = RwLock::new(Storage::new(path)?);
         let thumbnail_cache_size = config.thumbnail_cache_size;
-        let static_content_hash = format!("{:X}", thread_rng().next_u32());
+        let static_content_hash = format!("{:X}", rng().next_u32());
         let download_base_url = format!("{}", url_encode(&config.download_url))
             .trim_end_matches('/')
             .to_owned();

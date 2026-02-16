@@ -1,5 +1,6 @@
-use std::{num::NonZeroU32, path::Path};
+use std::path::Path;
 
+use fast_image_resize::{ResizeOptions, Resizer};
 use image::{DynamicImage, ImageBuffer, Pixel, RgbaImage, imageops};
 
 use crate::{error::Result, thumbnails::cropping::crop_coordinates};
@@ -34,45 +35,23 @@ fn crop_and_resize(
     crop_coords: (u32, u32, u32, u32),
     new_size: (u32, u32),
 ) -> RgbaImage {
-    use fast_image_resize::{CropBox, FilterType, Image, PixelType, ResizeAlg, Resizer};
+    let mut dst_image = RgbaImage::new(new_size.0, new_size.1);
 
-    let src_image = Image::from_vec_u8(
-        NonZeroU32::new(img.width()).unwrap(),
-        NonZeroU32::new(img.height()).unwrap(),
-        img.into_raw(),
-        PixelType::U8x4,
-    )
-    .unwrap();
+    let mut resizer = Resizer::new();
+    resizer
+        .resize(
+            &img,
+            &mut dst_image,
+            &ResizeOptions::new().crop(
+                crop_coords.0 as f64,
+                crop_coords.1 as f64,
+                crop_coords.2 as f64,
+                crop_coords.3 as f64,
+            ),
+        )
+        .unwrap();
 
-    // Create container for data of destination image
-    let mut dst_image = Image::new(
-        NonZeroU32::new(new_size.0).unwrap(),
-        NonZeroU32::new(new_size.1).unwrap(),
-        PixelType::U8x4,
-    );
-
-    let mut src_view = src_image.view();
-    src_view
-        .set_crop_box(CropBox {
-            left: crop_coords.0,
-            top: crop_coords.1,
-            width: NonZeroU32::new(crop_coords.2)
-                .expect("Guaranteed to succeed by crop_coordinates()"),
-            height: NonZeroU32::new(crop_coords.3)
-                .expect("Guaranteed to succeed by crop_coordinates()"),
-        })
-        .expect("Guaranteed to succeed by crop_coordinates()");
-
-    // Get mutable view of destination image data
-    let mut dst_view = dst_image.view_mut();
-
-    // Create Resizer instance and resize source image
-    // into buffer of destination image
-    let mut resizer = Resizer::new(ResizeAlg::Convolution(FilterType::Lanczos3));
-
-    resizer.resize(&src_view, &mut dst_view).unwrap();
-
-    RgbaImage::from_vec(new_size.0, new_size.1, dst_image.into_vec()).unwrap()
+    dst_image
 }
 
 fn get_orientation(path: &Path) -> Result<u32> {
