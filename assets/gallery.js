@@ -13,8 +13,13 @@ let descriptionBlock = null;
 let downloadLink = null;
 
 function galleryInit() {
-    document.querySelectorAll(".dir-listing .image").forEach((entry, index) => {
+    document.querySelectorAll(".dir-listing li").forEach(entry => {
         let mainLink = entry.querySelector(".main-link");
+
+        if (!isImage(mainLink.href)) {
+            return;
+        }
+        
         let download = entry.querySelector("a.download");
         let thumbnail = mainLink.querySelector("img");
 
@@ -23,6 +28,7 @@ function galleryInit() {
         } else {
             thumbnail_url = null;
         }
+        index = images.length;
         images.push([mainLink.innerText, download.href, thumbnail_url]);
         mainLink.href = hashForIndex(index);
     });
@@ -167,6 +173,11 @@ function imgOnprogress(event) {
         progressBar.removeAttribute('value');
         progressBar.innerText = "";
     }
+}
+
+function isImage(url) {
+    x = /\.(jpg|jpeg|png|webp|avif|gif|svg)$/.test(url.toLowerCase());
+    return x;
 }
 
 galleryInit();
