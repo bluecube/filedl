@@ -1,19 +1,19 @@
 use std::{num::NonZeroU32, path::Path};
 
-use image::{imageops, DynamicImage, GenericImageView as _, ImageBuffer, Pixel, Rgb, RgbImage};
+use image::{DynamicImage, ImageBuffer, Pixel, RgbaImage, imageops};
 
 use crate::error::Result;
 
-pub fn create_image_thumbnail(file: &Path, resolution: (u32, u32)) -> Result<RgbImage> {
+pub fn create_image_thumbnail(file: &Path, resolution: (u32, u32)) -> Result<RgbaImage> {
     let img = open_image(file)?;
+    let img = img.into_rgba8();
+
     let orientation = get_orientation(file)?;
 
     // TODO: Fix orientation for non-square non-centered crops
     let crop_coords = crop_coordinates(img.dimensions(), resolution);
 
-    // TODO: Don't hardcode background color
-    let rgb_img = normalize_layers(img, [0xDA, 0xE1, 0xE4].into());
-    let resized = crop_and_resize(rgb_img, crop_coords, resolution);
+    let resized = crop_and_resize(img, crop_coords, resolution);
     let resized_and_reoriented = fix_orientation(resized, orientation);
 
     Ok(resized_and_reoriented)
@@ -26,17 +26,17 @@ fn open_image(path: &Path) -> Result<DynamicImage> {
 }
 
 fn crop_and_resize(
-    img: RgbImage,
+    img: RgbaImage,
     crop_coords: (u32, u32, u32, u32),
     new_size: (u32, u32),
-) -> RgbImage {
+) -> RgbaImage {
     use fast_image_resize::{CropBox, FilterType, Image, PixelType, ResizeAlg, Resizer};
 
     let src_image = Image::from_vec_u8(
         NonZeroU32::new(img.width()).unwrap(),
         NonZeroU32::new(img.height()).unwrap(),
         img.into_raw(),
-        PixelType::U8x3,
+        PixelType::U8x4,
     )
     .unwrap();
 
@@ -44,7 +44,7 @@ fn crop_and_resize(
     let mut dst_image = Image::new(
         NonZeroU32::new(new_size.0).unwrap(),
         NonZeroU32::new(new_size.1).unwrap(),
-        PixelType::U8x3,
+        PixelType::U8x4,
     );
 
     let mut src_view = src_image.view();
@@ -68,7 +68,7 @@ fn crop_and_resize(
 
     resizer.resize(&src_view, &mut dst_view).unwrap();
 
-    RgbImage::from_vec(new_size.0, new_size.1, dst_image.into_vec()).unwrap()
+    RgbaImage::from_vec(new_size.0, new_size.1, dst_image.into_vec()).unwrap()
 }
 
 fn get_orientation(path: &Path) -> Result<u32> {
@@ -120,51 +120,6 @@ fn fix_orientation<Px: 'static + Pixel>(
         8 => imageops::rotate270(&img),
         _ => unreachable!(),
     }
-}
-
-fn normalize_layers(img: DynamicImage, background_color: Rgb<u8>) -> RgbImage {
-    if img.color().has_alpha() {
-        blend_background(img.into_rgba8(), background_color)
-    } else {
-        img.into_rgb8()
-    }
-}
-
-fn blend_background<Px>(
-    img: ImageBuffer<Px, Vec<Px::Subpixel>>,
-    background_color: Rgb<u8>,
-) -> RgbImage
-where
-    Px: Pixel,
-    <Px as image::Pixel>::Subpixel: Into<u32>,
-{
-    let mut ret = ImageBuffer::new(img.width(), img.height());
-
-    use image::Primitive;
-    let max: u32 = (Px::Subpixel::DEFAULT_MAX_VALUE).into();
-    let scale: u32 = max * max / 255;
-
-    for (from, to) in img.pixels().zip(ret.pixels_mut()) {
-        let from_channels = from.channels();
-        let bg_channels = background_color.channels();
-
-        let a: u32 = from.channels()[3].into();
-        let na = max - a;
-
-        let blend = |fg: Px::Subpixel, bg: u8| -> u8 {
-            let fg: u32 = fg.into();
-            let bg: u32 = bg.into();
-
-            ((fg * a) / scale + (bg * na) / max).try_into().unwrap()
-        };
-        *to = Rgb([
-            blend(from_channels[0], bg_channels[0]),
-            blend(from_channels[1], bg_channels[1]),
-            blend(from_channels[2], bg_channels[2]),
-        ]);
-    }
-
-    ret
 }
 
 /// Given original image size and target thumbnail size, finds subimage x, y, width, height in the
