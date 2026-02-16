@@ -38,6 +38,8 @@ pub enum FiledlError {
         #[source]
         source: std::io::Error,
     },
+    #[error("Pdf loading error")]
+    PdfLoadError(hayro::hayro_syntax::LoadPdfError),
     #[error("Error when extracting request payload: {source}")]
     PayloadError {
         #[from]

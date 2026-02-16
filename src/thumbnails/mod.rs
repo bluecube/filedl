@@ -1,5 +1,7 @@
 mod cache;
+mod cropping;
 mod image_thumbnail;
+mod pdf_thumbnail;
 
 use std::{fmt::Display, hash::Hash, io::Cursor, path::Path};
 
@@ -11,6 +13,7 @@ use mime::Mime;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
+use pdf_thumbnail::create_pdf_thumbnail;
 
 pub use cache::{CacheStats, CachedThumbnails};
 
@@ -72,7 +75,12 @@ pub fn create_thumbnail(
     resolution: (u32, u32),
     thumbnail_type: ThumbnailType,
 ) -> Result<Bytes> {
-    let thumb = create_image_thumbnail(file, resolution)?;
+    let extension = file.extension().and_then(|s| s.to_str());
+    let thumb = if extension == Some("pdf") {
+        create_pdf_thumbnail(file, resolution)
+    } else {
+        create_image_thumbnail(file, resolution)
+    }?;
     let mut bytes: Vec<u8> = Vec::new();
 
     if thumbnail_type.has_alpha() {
@@ -93,15 +101,12 @@ pub fn create_thumbnail(
 /// Returns a hash describing the source image, if it is thumbnailable,
 /// otherwise returns None.
 pub fn is_thumbnailable(path: &Path) -> bool {
-    let Some(filename) = path.file_name() else {
+    let Some(extension) = path.extension() else {
         return false;
     };
-    let Some(filename) = filename.to_str() else {
-        return false;
-    };
-    let Some((_, extension)) = filename.rsplit_once('.') else {
-        return false;
-    };
+    if extension == "pdf" {
+        return true;
+    }
     let Some(format) = ImageFormat::from_extension(extension) else {
         return false;
     };
