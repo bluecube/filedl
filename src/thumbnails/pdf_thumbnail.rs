@@ -1,12 +1,29 @@
 use std::{fs::read, path::Path, sync::Arc};
 
 use assert2::assert;
+use fast_image_resize::{ResizeOptions, Resizer};
 use hayro::{RenderSettings, hayro_interpret::InterpreterSettings, hayro_syntax::Pdf};
 use image::{Rgba, RgbaImage};
 
 use crate::error::{FiledlError, Result};
 
 pub fn create_pdf_thumbnail(file: &Path, resolution: (u32, u32)) -> Result<RgbaImage> {
+    // Calculate render resolution, targeting 512x512 render.
+    let ratio = (512 / resolution.0).max(512 / resolution.1).max(1);
+    let render_resolution = (resolution.0 * ratio, resolution.1 * ratio);
+
+    let rendered = create_pdf_thumbnail_inner(file, render_resolution)?;
+
+    let mut dst_image = RgbaImage::new(resolution.0, resolution.1);
+    let mut resizer = Resizer::new();
+    resizer
+        .resize(&rendered, &mut dst_image, &ResizeOptions::new())
+        .unwrap();
+
+    Ok(dst_image)
+}
+
+fn create_pdf_thumbnail_inner(file: &Path, resolution: (u32, u32)) -> Result<RgbaImage> {
     let file_data = Arc::new(read(file)?);
     let pdf = Pdf::new(file_data).map_err(|e| FiledlError::PdfLoadError(e))?;
 
