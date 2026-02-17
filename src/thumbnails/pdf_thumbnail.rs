@@ -1,5 +1,6 @@
 use std::{fs::read, path::Path, sync::Arc};
 
+use assert2::assert;
 use hayro::{RenderSettings, hayro_interpret::InterpreterSettings, hayro_syntax::Pdf};
 use image::{Rgba, RgbaImage};
 
@@ -13,8 +14,9 @@ pub fn create_pdf_thumbnail(file: &Path, resolution: (u32, u32)) -> Result<RgbaI
 
     let (page_w, page_h) = first_page.render_dimensions();
 
-    let scale_x = resolution.0 as f32 / page_w as f32;
-    let scale_y = resolution.1 as f32 / page_h as f32;
+    // Scale has extra 0.5 to make sure the rounding doesn't make the image 1 px smaller than intended
+    let scale_x = (resolution.0 as f32 + 0.5) / page_w as f32;
+    let scale_y = (resolution.1 as f32 + 0.5) / page_h as f32;
     let scale = scale_x.min(scale_y);
 
     let render_settings = RenderSettings {
@@ -36,6 +38,9 @@ pub fn create_pdf_thumbnail(file: &Path, resolution: (u32, u32)) -> Result<RgbaI
     assert!(rendered_h <= resolution.1);
 
     let converted_pixmap_pixel = |x: u32, y: u32| -> Rgba<u8> {
+        assert!(x < pixmap.width().into(),);
+        assert!(y < pixmap.height().into(),);
+
         let px = pixmap.sample(x as u16, y as u16);
 
         // Flatten alpha channel onto white background
@@ -51,27 +56,17 @@ pub fn create_pdf_thumbnail(file: &Path, resolution: (u32, u32)) -> Result<RgbaI
         // }
     };
 
-    let image = if rendered_w < resolution.0 {
-        let min_x = (resolution.0 - rendered_w) / 2;
-        let max_x = min_x + rendered_w;
-        RgbaImage::from_fn(resolution.0, resolution.1, |x, y| {
-            if x < min_x || x >= max_x {
-                Rgba([0, 0, 0, 0])
-            } else {
-                converted_pixmap_pixel(x - min_x, y)
-            }
-        })
-    } else {
-        let min_y = (resolution.1 - rendered_h) / 2;
-        let max_y = min_y + rendered_h;
-        RgbaImage::from_fn(resolution.0, resolution.1, |x, y| {
-            if y < min_y || y >= max_y {
-                Rgba([0, 0, 0, 0])
-            } else {
-                converted_pixmap_pixel(x, y - min_y)
-            }
-        })
-    };
+    let min_x = (resolution.0 - rendered_w) / 2;
+    let max_x = min_x + rendered_w;
+    let min_y = (resolution.1 - rendered_h) / 2;
+    let max_y = min_y + rendered_h;
+    let image = RgbaImage::from_fn(resolution.0, resolution.1, |x, y| {
+        if x < min_x || x >= max_x || y < min_y || y >= max_y {
+            Rgba([0, 0, 0, 0])
+        } else {
+            converted_pixmap_pixel(x - min_x, y - min_y)
+        }
+    });
 
     Ok(image)
 }
