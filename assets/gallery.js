@@ -176,7 +176,8 @@ function imgOnprogress(event) {
 }
 
 function isImage(url) {
-    x = /\.(jpg|jpeg|png|webp|avif|gif|svg)$/.test(url.toLowerCase());
+    url = new URL(url);
+    x = /\.(jpg|jpeg|png|webp|avif|gif|svg)$/.test(url.pathname);
     return x;
 }
 
