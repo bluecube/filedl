@@ -1,23 +1,25 @@
 use std::{
     env,
-    fs::{create_dir_all, read, write, File},
+    fs::{File, create_dir_all, read, write},
     io::{Cursor, Write},
     path::{Path, PathBuf},
 };
 
 use anyhow::anyhow;
-use brotli::{enc::BrotliEncoderParams, BrotliCompress};
+use brotli::{BrotliCompress, enc::BrotliEncoderParams};
 use walkdir::WalkDir;
 
 fn main() {
+    let do_minify = env::var("PROFILE").unwrap() != "debug";
     process_assets(
         Path::new("assets"),
         &Path::new(&env::var("OUT_DIR").unwrap()).join("assets"),
+        do_minify,
     )
     .unwrap();
 }
 
-fn process_assets(source_dir: &Path, dest_dir: &Path) -> anyhow::Result<()> {
+fn process_assets(source_dir: &Path, dest_dir: &Path, do_minify: bool) -> anyhow::Result<()> {
     create_dir_all(dest_dir).unwrap();
 
     println!("cargo::rerun-if-changed={}", source_dir.display());
@@ -43,8 +45,8 @@ fn assets(name: &str) -> Option<(&'static [u8], &'static [u8], mime::Mime)> {{
         let ext = path.extension().and_then(|ext| ext.to_str());
 
         let (converted_name, content, mime) = match ext {
-            Some("js") => minify_js(&path, name)?,
-            Some("scss") => compile_scss(&path, name)?,
+            Some("js") => minify_js(&path, name, do_minify)?,
+            Some("scss") => compile_scss(&path, name, do_minify)?,
             Some("svg") => copied_asset(&path, name, "IMAGE_SVG")?,
             _ => copied_asset(&path, name, "APPLICATION_OCTET_STREAM")?,
         };
@@ -98,8 +100,12 @@ fn add_extension(path: &Path, extension: &str) -> PathBuf {
     new_path
 }
 
-fn minify_js(source: &Path, name: &Path) -> anyhow::Result<(PathBuf, Vec<u8>, &'static str)> {
-    use minify_js::{minify, Session};
+fn minify_js(
+    source: &Path,
+    name: &Path,
+    do_minify: bool,
+) -> anyhow::Result<(PathBuf, Vec<u8>, &'static str)> {
+    use minify_js::{Session, minify};
 
     let source_buf = read(source)?;
 
@@ -114,12 +120,16 @@ fn minify_js(source: &Path, name: &Path) -> anyhow::Result<(PathBuf, Vec<u8>, &'
 
     Ok((
         name.to_path_buf(),
-        target_buf,
+        if do_minify { target_buf } else { source_buf },
         "APPLICATION_JAVASCRIPT_UTF_8",
     ))
 }
 
-fn compile_scss(source: &Path, name: &Path) -> anyhow::Result<(PathBuf, Vec<u8>, &'static str)> {
+fn compile_scss(
+    source: &Path,
+    name: &Path,
+    do_minify: bool,
+) -> anyhow::Result<(PathBuf, Vec<u8>, &'static str)> {
     use css_minify::optimizations::{Level, Minifier};
     use grass::{Options, OutputStyle};
 
@@ -132,7 +142,11 @@ fn compile_scss(source: &Path, name: &Path) -> anyhow::Result<(PathBuf, Vec<u8>,
 
     Ok((
         name.with_extension("css"),
-        minified.into_bytes(),
+        if do_minify {
+            minified.into_bytes()
+        } else {
+            compiled.into_bytes()
+        },
         "TEXT_CSS",
     ))
 }
