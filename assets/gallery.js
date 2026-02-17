@@ -16,18 +16,28 @@ function galleryInit() {
     document.querySelectorAll(".dir-listing li").forEach(entry => {
         let mainLink = entry.querySelector(".main-link");
 
-        if (!isImage(mainLink.href)) {
-            return;
-        }
-        
-        let download = entry.querySelector("a.download");
         let thumbnail = mainLink.querySelector("img");
-
         if (thumbnail) {
             thumbnail_url = thumbnail.src;
+
+            thumbnail.classList.add("thumbnail-loading")
+            thumbnail.addEventListener(
+                "load", (e) => { e.currentTarget.classList.remove("thumbnail-loading"); },
+                { passive: true }
+            );
         } else {
             thumbnail_url = null;
         }
+
+        if (!isImage(mainLink.href)) {
+            return;
+        }
+
+        entry.classList.add("image");
+        entry.classList.remove("file");
+
+        let download = entry.querySelector("a.download");
+
         index = images.length;
         images.push([mainLink.innerText, download.href, thumbnail_url]);
         mainLink.href = hashForIndex(index);
