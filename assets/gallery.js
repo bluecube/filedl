@@ -187,7 +187,7 @@ function imgOnprogress(event) {
 
 function isImage(url) {
     url = new URL(url);
-    x = /\.(jpg|jpeg|png|webp|avif|gif|svg)$/.test(url.pathname);
+    x = /\.(jpg|jpeg|png|webp|avif|gif|svg)$/i.test(url.pathname);
     return x;
 }
 
