@@ -1,6 +1,6 @@
 use super::AssetUrl;
 use chrono_tz::Tz;
-use horrorshow::{helper::doctype, html, prelude::TemplateBuffer, RenderOnce};
+use horrorshow::{RenderOnce, helper::doctype, html, prelude::TemplateBuffer};
 
 /// Wrapper around a template that provides the header and footer.
 pub struct Page<'a, T, C> {
@@ -32,14 +32,14 @@ impl<T: RenderOnce, C: RenderOnce> RenderOnce for Page<'_, T, C> {
                     );
                     link(
                         rel = "stylesheet",
-                        href = self.asset_url("style.css")
+                        href = self.asset_url("style.min.css")
                     );
                     link(
                         rel = "stylesheet",
                         href = self.asset_url("icons.css")
                     );
                     script(
-                        src = self.asset_url("gallery.js"),
+                        src = self.asset_url("gallery.min.js"),
                         defer
                     );
                     title: self.title;
