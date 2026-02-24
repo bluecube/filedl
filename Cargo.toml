@@ -51,5 +51,5 @@ anyhow = "1.0.101"
 brotli = "8.0.2"
 css-minify = "0.5.2"
 grass = "0.13.4"
-minify-js = { git = "https://github.com/RuairidhWilliamson/minify-js.git", rev = "8637df1" }
+oxc = { version = "0.115.0", default-features=false, features = ["codegen", "minifier"] }
 walkdir = "2.5.0"

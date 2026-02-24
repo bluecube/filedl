@@ -1,6 +1,6 @@
 use std::{
     env,
-    fs::{File, create_dir_all, read, write},
+    fs::{File, create_dir_all, read, read_to_string, write},
     io::{Cursor, Write},
     path::{Path, PathBuf},
 };
@@ -105,22 +105,37 @@ fn minify_js(
     name: &Path,
     do_minify: bool,
 ) -> anyhow::Result<(PathBuf, Vec<u8>, &'static str)> {
-    use minify_js::{Session, minify};
+    use oxc::{
+        codegen::{Codegen, CodegenOptions},
+        minifier::Minifier,
+        parser::Parser,
+        span::SourceType,
+    };
 
-    let source_buf = read(source)?;
+    let source_buf = read_to_string(source)?;
 
-    let mut target_buf = Vec::new();
-    minify(
-        &Session::new(),
-        minify_js::TopLevelMode::Module,
-        &source_buf,
-        &mut target_buf,
-    )
-    .map_err(|e| anyhow!("{}", e))?;
+    let minified_bytes = if do_minify {
+        let allocator = Default::default();
+
+        let source_type = SourceType::from_path(source)?;
+        let parsed = Parser::new(&allocator, &source_buf, source_type).parse();
+        let mut program = parsed.program;
+
+        let minified = Minifier::new(Default::default()).minify(&allocator, &mut program);
+
+        Codegen::new()
+            .with_options(CodegenOptions::minify())
+            .with_scoping(minified.scoping)
+            .build(&program)
+            .code
+            .into_bytes()
+    } else {
+        source_buf.into_bytes()
+    };
 
     Ok((
         name.to_path_buf(),
-        if do_minify { target_buf } else { source_buf },
+        minified_bytes,
         "APPLICATION_JAVASCRIPT_UTF_8",
     ))
 }
