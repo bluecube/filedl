@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use chrono_tz::{Tz, UTC};
 use clap::Parser;
 use figment::{
-    providers::{Env, Format, Toml},
     Figment,
+    providers::{Env, Format, Toml},
 };
 use serde::Deserialize;
 

@@ -6,10 +6,10 @@ use std::{
 };
 
 use actix_web::web::Bytes;
-use quick_cache::{sync::Cache, Weighter};
+use quick_cache::{Weighter, sync::Cache};
 use serde::Serialize;
 
-use super::{create_thumbnail, ThumbnailType};
+use super::{ThumbnailType, create_thumbnail};
 use crate::error::Result;
 
 /// Describes a cached rendered thumbnail

@@ -1,7 +1,7 @@
 use chrono::{DateTime, Datelike, TimeZone, Timelike};
-use horrorshow::{html, RenderOnce};
+use horrorshow::{RenderOnce, html};
 
-use percent_encoding::{utf8_percent_encode, AsciiSet, PercentEncode, NON_ALPHANUMERIC};
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, PercentEncode, utf8_percent_encode};
 
 const PERCENT_ENCODING_CHARSET: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'/')

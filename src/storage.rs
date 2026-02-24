@@ -1,4 +1,4 @@
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::{collections::HashMap, fs::File, io::BufReader, path::PathBuf, sync::Arc};
 
 #[derive(Debug)]

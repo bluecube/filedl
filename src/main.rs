@@ -8,7 +8,7 @@ mod thumbnails;
 
 use crate::{error::StartupError, pages::configure_pages};
 
-use actix_web::{http::header, middleware, web::Data, App, HttpServer};
+use actix_web::{App, HttpServer, http::header, middleware, web::Data};
 use app_data::AppData;
 use config::Config;
 use std::sync::Arc;
