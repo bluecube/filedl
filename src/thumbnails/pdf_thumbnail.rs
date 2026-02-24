@@ -25,15 +25,15 @@ pub fn create_pdf_thumbnail(file: &Path, resolution: (u32, u32)) -> Result<RgbaI
 
 fn create_pdf_thumbnail_inner(file: &Path, resolution: (u32, u32)) -> Result<RgbaImage> {
     let file_data = Arc::new(read(file)?);
-    let pdf = Pdf::new(file_data).map_err(|e| FiledlError::PdfLoadError(e))?;
+    let pdf = Pdf::new(file_data).map_err(FiledlError::PdfLoadError)?;
 
     let first_page = pdf.pages().first().unwrap(); // TODO: What to do if there are no pages?
 
     let (page_w, page_h) = first_page.render_dimensions();
 
     // Scale has extra 0.5 to make sure the rounding doesn't make the image 1 px smaller than intended
-    let scale_x = (resolution.0 as f32 + 0.5) / page_w as f32;
-    let scale_y = (resolution.1 as f32 + 0.5) / page_h as f32;
+    let scale_x = (resolution.0 as f32 + 0.5) / page_w;
+    let scale_y = (resolution.1 as f32 + 0.5) / page_h;
     let scale = scale_x.min(scale_y);
 
     let render_settings = RenderSettings {

@@ -308,7 +308,7 @@ async fn zip_download<'a>(
     let dir_path = std::fs::canonicalize(resolved_object.storage_path())?;
 
     let mut builder = zippity::Builder::new();
-    builder.system_time_timezone(app.get_display_timezone().clone());
+    builder.system_time_timezone(*app.get_display_timezone());
     builder
         .add_directory_recursive(dir_path, Some(&dir_name))
         .await?;

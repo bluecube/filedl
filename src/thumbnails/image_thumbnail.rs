@@ -62,15 +62,11 @@ fn get_orientation(path: &Path) -> Result<u32> {
         return Ok(1);
     };
 
-    Ok(
-        match exif_tags.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
-            Some(orientation) => match orientation.value.get_uint(0) {
-                Some(v @ 1..=8) => v,
-                _ => 1,
-            },
-            None => 1,
-        },
-    )
+    Ok(exif_tags
+        .get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+        .and_then(|o| o.value.get_uint(0))
+        .filter(|&v| (1..=8).contains(&v))
+        .unwrap_or(1))
 }
 
 fn fix_orientation<Px: 'static + Pixel>(
