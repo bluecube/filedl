@@ -30,6 +30,7 @@ async fn main() -> Result<(), StartupError> {
             .app_data(Data::new(app_data))
             .wrap(middleware::NormalizePath::trim())
             .wrap(middleware::DefaultHeaders::new().add(header::ContentType::html()))
+            .wrap(middleware::Compress::default())
             .configure(configure_pages)
     })
     .bind((host, port))?
