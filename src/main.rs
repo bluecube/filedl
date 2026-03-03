@@ -34,7 +34,7 @@ async fn main() -> Result<(), StartupError> {
             .wrap(middleware::Compress::default())
             .service(web::scope("/download").configure(pages::configure_pages))
             .service(web::scope("/admin").configure(admin_pages::configure_admin_pages))
-            .service(pages::index_redirect)
+            .service(pages::index_page)
             .default_service(web::to(pages::default_service))
     })
     .bind((host, port))?

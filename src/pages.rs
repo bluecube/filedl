@@ -99,8 +99,16 @@ impl ResponseError for FiledlError {
 #[routes]
 #[get("/index.html")]
 #[get("/")]
-pub async fn index_redirect(app: web::Data<Arc<AppData>>) -> impl Responder {
-    Redirect::to(app.get_download_base_url().to_owned()).permanent()
+pub async fn index_page(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
+    Ok(HttpResponse::Ok()
+        .content_type(mime::TEXT_HTML_UTF_8)
+        .body(
+            format!(
+                "<!DOCTYPE html><html><head><title>Direct Root Access Not Allowed</title></head><body><h1>Direct Root Access Not Allowed</h1><p>This service should be accessed either through the read-only public interface at <a href=\"{}\">{}</a> or through the admin interface.</p></body></html>",
+                app.get_download_base_url(),
+                app.get_download_base_url(),
+            )
+        ))
 }
 
 #[put("/admin/objects/{object:.*}")]
