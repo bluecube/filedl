@@ -24,7 +24,7 @@ where
 
         let y = ts.year();
         let m = ts.month();
-        let d = ts.month();
+        let d = ts.day();
         let h = ts.hour();
         let minute = ts.minute();
         let s = ts.second();
