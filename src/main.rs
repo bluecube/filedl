@@ -1,3 +1,4 @@
+mod admin_pages;
 mod app_data;
 mod config;
 mod error;
@@ -6,9 +7,9 @@ mod storage;
 mod templates;
 mod thumbnails;
 
-use crate::{error::StartupError, pages::configure_pages};
+use crate::error::StartupError;
 
-use actix_web::{App, HttpServer, http::header, middleware, web::Data};
+use actix_web::{App, HttpServer, http::header, middleware, web};
 use app_data::AppData;
 use config::Config;
 use std::sync::Arc;
@@ -27,11 +28,14 @@ async fn main() -> Result<(), StartupError> {
     HttpServer::new(move || {
         let app_data = Arc::clone(&app_data);
         App::new()
-            .app_data(Data::new(app_data))
+            .app_data(web::Data::new(app_data))
             .wrap(middleware::NormalizePath::trim())
             .wrap(middleware::DefaultHeaders::new().add(header::ContentType::html()))
             .wrap(middleware::Compress::default())
-            .configure(configure_pages)
+            .service(web::scope("/download").configure(pages::configure_pages))
+            .service(web::scope("/admin").configure(admin_pages::configure_admin_pages))
+            .service(pages::index_redirect)
+            .default_service(web::to(pages::default_service))
     })
     .bind((host, port))?
     .run()

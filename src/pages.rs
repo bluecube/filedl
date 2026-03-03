@@ -99,13 +99,8 @@ impl ResponseError for FiledlError {
 #[routes]
 #[get("/index.html")]
 #[get("/")]
-async fn index_redirect(app: web::Data<Arc<AppData>>) -> impl Responder {
+pub async fn index_redirect(app: web::Data<Arc<AppData>>) -> impl Responder {
     Redirect::to(app.get_download_base_url().to_owned()).permanent()
-}
-
-#[get("/admin")]
-async fn admin(_app: web::Data<Arc<AppData>>) -> impl Responder {
-    "TODO"
 }
 
 #[put("/admin/objects/{object:.*}")]
@@ -139,7 +134,7 @@ fn select_content_encoding(req: &HttpRequest) -> ContentEncoding {
     }
 }
 
-#[get("/download")]
+#[get("")]
 async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(
         templates::DirListing::new_wrapped(&app, "", None, app.list_objects().await?)
@@ -147,7 +142,7 @@ async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
     ))
 }
 
-#[get("/download/{object:.*}")]
+#[get("/{object:.*}")]
 async fn download_object(
     app: web::Data<Arc<AppData>>,
     path: web::Path<String>,
@@ -338,18 +333,12 @@ where
 }
 
 /// Not found handler used for default route
-async fn default_service() -> Result<HttpResponse> {
+pub async fn default_service() -> Result<HttpResponse> {
     Err(FiledlError::ObjectNotFound)
 }
 
 pub fn configure_pages(cfg: &mut web::ServiceConfig) {
-    cfg.default_service(web::to(default_service))
-        .service(index_redirect)
-        .service(admin)
-        .service(thumbnail_cache_stats)
-        .service(rest_file_upload)
-        .service(download_root)
-        .service(download_object);
+    cfg.service(download_root).service(download_object);
 }
 
 include! {concat!(env!("OUT_DIR"), "/assets/assets.rs")}
