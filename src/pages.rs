@@ -10,12 +10,12 @@ use actix_web::{
     body::{BoxBody, EitherBody},
     get,
     http::{StatusCode, header},
-    put, routes,
-    web::{self, Payload, Redirect},
+    routes,
+    web::{self},
 };
 use horrorshow::Template as _;
 use memchr::memmem;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::sync::Arc;
 
 pub const PROJECT_NAME: &str = env!("CARGO_PKG_NAME");
@@ -49,11 +49,6 @@ struct DownloadQuery {
 enum ContentEncoding {
     Identity,
     Brotli,
-}
-
-#[derive(Debug, Serialize)]
-struct UploadResult {
-    download_url: String,
 }
 
 const CACHE_CONTROL_IMMUTABLE: (&str, &str) = (
@@ -109,25 +104,6 @@ pub async fn index_page(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
                 app.get_download_base_url(),
             )
         ))
-}
-
-#[put("/admin/objects/{object:.*}")]
-async fn rest_file_upload(
-    app: web::Data<Arc<AppData>>,
-    path: web::Path<String>,
-    payload: Payload,
-) -> Result<HttpResponse> {
-    let object_path = path.into_inner();
-    app.upload_simple_object(object_path.as_str().into(), payload)
-        .await?;
-
-    let download_url = format!("{}/{}", app.get_download_base_url(), &object_path);
-    Ok(HttpResponse::Ok().json(UploadResult { download_url }))
-}
-
-#[get("/admin/thumbnail_cache_stats")]
-async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
-    HttpResponse::Ok().json(app.get_thumbnail_cache_stats().await)
 }
 
 fn select_content_encoding(req: &HttpRequest) -> ContentEncoding {
