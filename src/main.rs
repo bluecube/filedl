@@ -1,17 +1,5 @@
-mod admin_pages;
-mod app_data;
-mod config;
-mod error;
-mod pages;
-mod storage;
-mod templates;
-mod thumbnails;
-
-use crate::error::StartupError;
-
 use actix_web::{App, HttpServer, http::header, middleware, web};
-use app_data::AppData;
-use config::Config;
+use filedl::{admin_pages, app_data::AppData, config::Config, error::StartupError, pages};
 use std::sync::Arc;
 
 #[actix_web::main]
