@@ -3,9 +3,13 @@ use filedl::{app_data::AppData, build_app, config::Config};
 use std::sync::Arc;
 
 macro_rules! test_app {
-    () => {{
+    () => {
+        test_app!("{}")
+    };
+    ($metadata:expr) => {{
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("owned_data")).unwrap();
+        std::fs::write(dir.path().join("metadata.json"), $metadata).unwrap();
         let app_data = Arc::new(
             AppData::with_config(Config {
                 bind_address: "localhost".into(),
@@ -286,6 +290,161 @@ async fn json_mode_on_file_returns_404() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 404);
+}
+
+fn make_test_png(width: u32, height: u32) -> Vec<u8> {
+    let img = image::DynamicImage::new_rgb8(width, height);
+    let mut buf = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+        .unwrap();
+    buf
+}
+
+#[actix_web::test]
+async fn thumbnail_returns_correct_size() {
+    let (_dir, app) = test_app!();
+
+    let png = make_test_png(200, 200);
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/test.png")
+        .set_payload(png)
+        .to_request();
+    test::call_service(&app, req).await;
+
+    let req = test::TestRequest::get()
+        .uri("/download/test.png?mode=thumbnail&size=64")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get(header::CONTENT_TYPE).unwrap(),
+        "image/jpeg"
+    );
+
+    let body = test::read_body(resp).await;
+    let thumb = image::load_from_memory(&body).unwrap();
+    assert_eq!(thumb.width(), 64);
+    assert_eq!(thumb.height(), 64);
+}
+
+#[actix_web::test]
+async fn thumbnail_size_rounds_up() {
+    let (_dir, app) = test_app!();
+
+    let png = make_test_png(200, 200);
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/test.png")
+        .set_payload(png)
+        .to_request();
+    test::call_service(&app, req).await;
+
+    // size=100 is >64 and <=128, so should round up to 128
+    let req = test::TestRequest::get()
+        .uri("/download/test.png?mode=thumbnail&size=100")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = test::read_body(resp).await;
+    let thumb = image::load_from_memory(&body).unwrap();
+    assert_eq!(thumb.width(), 128);
+    assert_eq!(thumb.height(), 128);
+}
+
+#[actix_web::test]
+async fn directory_zip_download() {
+    // "fs_dirname" is the name on disk, "public_name" is the filedl object name.
+    // The zip should use the filedl name, not the filesystem name.
+    let (dir, app) = test_app!(r#"{"public_name":{"ownership":{"Linked":"fs_dirname"}}}"#);
+    let content_dir = dir.path().join("fs_dirname");
+    std::fs::create_dir(&content_dir).unwrap();
+    std::fs::write(content_dir.join("file1.txt"), "content1").unwrap();
+    std::fs::write(content_dir.join("file2.txt"), "content2").unwrap();
+
+    let req = test::TestRequest::get()
+        .uri("/download/public_name?mode=download")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let cd = resp
+        .headers()
+        .get(header::CONTENT_DISPOSITION)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert!(cd.contains("attachment"));
+    assert!(cd.contains("public_name.zip"));
+
+    let body = test::read_body(resp).await;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(body.as_ref())).unwrap();
+    let names: std::collections::HashSet<String> = (0..archive.len())
+        .map(|i| archive.by_index(i).unwrap().name().to_owned())
+        .collect();
+    assert!(names.contains("public_name/file1.txt"));
+    assert!(names.contains("public_name/file2.txt"));
+    assert!(!names.iter().any(|n| n.starts_with("fs_dirname")));
+}
+
+#[actix_web::test]
+async fn thumbnail_avif_with_accept_header() {
+    let (_dir, app) = test_app!();
+
+    let png = make_test_png(200, 200);
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/test.png")
+        .set_payload(png)
+        .to_request();
+    test::call_service(&app, req).await;
+
+    let req = test::TestRequest::get()
+        .uri("/download/test.png?mode=thumbnail&size=64")
+        .insert_header((header::ACCEPT, "image/avif"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get(header::CONTENT_TYPE).unwrap(),
+        "image/avif"
+    );
+
+    // AVIF decoding is not supported by the image crate in this configuration;
+    // verifying content-type and a non-empty body is sufficient.
+    let body = test::read_body(resp).await;
+    assert!(!body.is_empty());
+}
+
+#[actix_web::test]
+async fn asset_can_be_downloaded() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::get()
+        .uri("/download/style.min.css?mode=assets")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert!(
+        resp.headers()
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("text/css")
+    );
+}
+
+#[actix_web::test]
+async fn asset_brotli_compressed_when_accepted() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::get()
+        .uri("/download/style.min.css?mode=assets")
+        .insert_header((header::ACCEPT_ENCODING, "br"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.headers().get(header::CONTENT_ENCODING).unwrap(), "br");
 }
 
 #[actix_web::test]
