@@ -208,6 +208,87 @@ async fn unlisted_objects_not_shown_in_listing() {
 }
 
 #[actix_web::test]
+async fn root_listing_json_mode() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/visible")
+        .set_payload("data")
+        .to_request();
+    test::call_service(&app, req).await;
+
+    let req = test::TestRequest::get()
+        .uri("/download?mode=json")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let items: Vec<serde_json::Value> = test::read_body_json(resp).await;
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["name"], "visible");
+}
+
+#[actix_web::test]
+async fn directory_listing_json_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("owned_data")).unwrap();
+    let content_dir = dir.path().join("mydir");
+    std::fs::create_dir(&content_dir).unwrap();
+    std::fs::write(content_dir.join("alpha.txt"), "aaa").unwrap();
+    std::fs::write(content_dir.join("beta.txt"), "bbb").unwrap();
+    std::fs::write(
+        dir.path().join("metadata.json"),
+        r#"{"mydir":{"ownership":{"Linked":"mydir"}}}"#,
+    )
+    .unwrap();
+    let app_data = Arc::new(
+        AppData::with_config(Config {
+            bind_address: "localhost".into(),
+            bind_port: 8080,
+            data_path: dir.path().to_owned(),
+            linked_objects_root: dir.path().to_owned(),
+            download_url: "/download".into(),
+            app_name: "Test".into(),
+            display_timezone: chrono_tz::UTC,
+            thumbnail_cache_size: 1024 * 1024,
+        })
+        .unwrap(),
+    );
+    let app = test::init_service(build_app!(app_data)).await;
+
+    let req = test::TestRequest::get()
+        .uri("/download/mydir?mode=json")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let mut items: Vec<serde_json::Value> = test::read_body_json(resp).await;
+    items.sort_by_key(|v| v["name"].as_str().unwrap_or("").to_owned());
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["name"], "alpha.txt");
+    assert_eq!(items[0]["item_type"], "file");
+    assert_eq!(items[1]["name"], "beta.txt");
+    assert_eq!(items[1]["item_type"], "file");
+}
+
+#[actix_web::test]
+async fn json_mode_on_file_returns_404() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/afile")
+        .set_payload("content")
+        .to_request();
+    test::call_service(&app, req).await;
+
+    let req = test::TestRequest::get()
+        .uri("/download/afile?mode=json")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+}
+
+#[actix_web::test]
 async fn unlisted_object_requires_key() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("owned_data")).unwrap();

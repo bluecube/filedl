@@ -119,7 +119,8 @@ impl<'a> ResolvedObject<'a> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ItemType {
     Directory,
     /// File of other/unknown type
@@ -174,7 +175,7 @@ fn get_source_hash(path: &Path, metadata: &Metadata) -> Option<u64> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct DirListingItem {
     pub name: Arc<str>,
     pub item_type: ItemType,

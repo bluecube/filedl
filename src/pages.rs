@@ -30,6 +30,7 @@ enum DownloadMode {
     Assets,
     Download,
     Thumbnail,
+    Json,
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,11 +120,18 @@ fn select_content_encoding(req: &HttpRequest) -> ContentEncoding {
 }
 
 #[get("")]
-async fn download_root(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(
-        templates::DirListing::new_wrapped(&app, "", None, app.list_objects().await?)
-            .into_string()?,
-    ))
+async fn download_root(
+    app: web::Data<Arc<AppData>>,
+    query: web::Query<DownloadQuery>,
+) -> Result<HttpResponse> {
+    let items = app.list_objects().await?;
+    match query.mode {
+        DownloadMode::Default => Ok(HttpResponse::Ok()
+            .content_type(mime::TEXT_HTML_UTF_8)
+            .body(templates::DirListing::new_wrapped(&app, "", None, items).into_string()?)),
+        DownloadMode::Json => Ok(HttpResponse::Ok().json(items)),
+        _ => Err(FiledlError::BadDownloadMode),
+    }
 }
 
 #[get("/{object:.*}")]
@@ -154,6 +162,10 @@ async fn download_object(
                     .await?
                 }
                 DownloadMode::Download => zip_download(&app, &req, resolved_object).await?,
+                DownloadMode::Json => {
+                    let items = resolved_object.list().await?;
+                    HttpResponse::Ok().json(items)
+                }
                 DownloadMode::Assets => unreachable!("Was handled before"),
                 _ => return Err(FiledlError::BadDownloadMode),
             },
@@ -171,7 +183,7 @@ async fn download_object(
                     )
                     .await?
                 }
-                _ => unreachable!("Was handled before"),
+                _ => return Err(FiledlError::BadDownloadMode),
             },
         }
     })
