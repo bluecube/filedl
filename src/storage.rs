@@ -98,3 +98,74 @@ impl<T: Serialize + DeserializeOwned> Drop for Storage<T> {
 }
 
 pub type Iterator<'a, T> = std::collections::hash_map::Iter<'a, Arc<str>, T>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assert2::assert;
+
+    fn fresh() -> (tempfile::TempDir, Storage<String>) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("storage.json");
+        let s = Storage::new(&path).unwrap();
+        (dir, s)
+    }
+
+    #[test]
+    fn create_and_get() {
+        let (_dir, mut s) = fresh();
+        assert!(s.create(Arc::from("foo"), "hello".into()));
+        assert!(s.get("foo") == Some(&"hello".to_string()));
+    }
+
+    #[test]
+    fn create_duplicate_returns_false_and_preserves_original() {
+        let (_dir, mut s) = fresh();
+        assert!(s.create(Arc::from("foo"), "first".into()));
+        assert!(!s.create(Arc::from("foo"), "second".into()));
+        assert!(s.get("foo") == Some(&"first".to_string()));
+    }
+
+    #[test]
+    fn set_overwrites() {
+        let (_dir, mut s) = fresh();
+        s.set(Arc::from("foo"), "first".into());
+        s.set(Arc::from("foo"), "second".into());
+        assert!(s.get("foo") == Some(&"second".to_string()));
+    }
+
+    #[test]
+    fn remove_existing_and_missing() {
+        let (_dir, mut s) = fresh();
+        assert!(s.create(Arc::from("foo"), "hello".into()));
+        assert!(s.remove("foo") == Some("hello".to_string()));
+        assert!(s.get("foo") == None);
+        assert!(s.remove("foo") == None);
+    }
+
+    #[test]
+    fn dirty_flag() {
+        let (_dir, mut s) = fresh();
+        assert!(!s.is_dirty());
+        s.set(Arc::from("foo"), "bar".into());
+        assert!(s.is_dirty());
+        s.dump().unwrap();
+        assert!(!s.is_dirty());
+    }
+
+    #[test]
+    fn dump_and_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("storage.json");
+        {
+            let mut s: Storage<String> = Storage::new(&path).unwrap();
+            s.set(Arc::from("key1"), "value1".into());
+            s.set(Arc::from("key2"), "value2".into());
+            s.dump().unwrap();
+        }
+        let s: Storage<String> = Storage::new(&path).unwrap();
+        assert!(s.get("key1") == Some(&"value1".to_string()));
+        assert!(s.get("key2") == Some(&"value2".to_string()));
+        assert!(s.len() == 2);
+    }
+}
