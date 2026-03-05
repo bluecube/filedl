@@ -77,6 +77,8 @@ impl ResponseError for FiledlError {
             FiledlError::ObjectNotFound => StatusCode::NOT_FOUND,
             FiledlError::Unlisted { path: _, key: _ } => StatusCode::NOT_FOUND,
             FiledlError::BadDownloadMode => StatusCode::NOT_FOUND,
+            FiledlError::ObjectExists { .. } => StatusCode::CONFLICT,
+            FiledlError::DirectoryTraversal { .. } => StatusCode::BAD_REQUEST,
             FiledlError::IOError { source } => match source.kind() {
                 std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
                 _ => {
