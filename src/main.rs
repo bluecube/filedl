@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 #[actix_web::main]
 async fn main() -> Result<(), StartupError> {
-    env_logger::init();
+    env_logger::Builder::from_default_env()
+        .filter_module("hayro_syntax", log::LevelFilter::Info)
+        .build();
 
     let config = Config::get()?;
     let host = config.bind_address.clone();
