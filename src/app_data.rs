@@ -9,7 +9,7 @@ use actix_web::web::Bytes;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use futures::{Stream, pin_mut};
-use rand::{Rng as _, rng};
+use rand::{Rng as _, RngExt as _, rng};
 use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -44,7 +44,6 @@ pub struct Object {
 pub struct ResolvedObject<'a> {
     object_path: String,
     storage_path: PathBuf,
-    object: RwLockReadGuard<'a, Object>,
     metadata: Metadata,
     thumbnails: &'a CachedThumbnails,
 }
@@ -53,7 +52,6 @@ impl<'a> ResolvedObject<'a> {
     async fn new(
         object_path: String,
         storage_path: PathBuf,
-        object: RwLockReadGuard<'a, Object>,
         thumbnails: &'a CachedThumbnails,
     ) -> Result<Self> {
         let metadata = fs::metadata(&storage_path).await?;
@@ -61,7 +59,6 @@ impl<'a> ResolvedObject<'a> {
         Ok(ResolvedObject {
             object_path,
             storage_path,
-            object,
             metadata,
             thumbnails,
         })
@@ -175,6 +172,14 @@ fn get_source_hash(path: &Path, metadata: &Metadata) -> Option<u64> {
     }
 }
 
+#[derive(Debug)]
+pub struct AdminObjectInfo {
+    pub item: DirListingItem,
+    pub ownership: ObjectOwnership,
+    pub unlisted_key: Option<Arc<str>>,
+    pub expires: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct DirListingItem {
     pub name: Arc<str>,
@@ -211,6 +216,10 @@ impl DirListingItem {
     }
 }
 
+pub fn generate_unlisted_key() -> Arc<str> {
+    format!("{:032x}", rand::rng().random::<u128>()).into()
+}
+
 pub struct AppData {
     config: Config,
     objects: RwLock<Storage<Object>>,
@@ -218,6 +227,7 @@ pub struct AppData {
     thumbnails: CachedThumbnails,
     static_content_hash: String,
     download_base_url: String,
+    admin_objects_base_url: String,
 }
 
 impl AppData {
@@ -229,6 +239,10 @@ impl AppData {
         let download_base_url = format!("{}", url_encode(&config.download_url))
             .trim_end_matches('/')
             .to_owned();
+        let admin_objects_base_url = format!(
+            "{}/objects",
+            format!("{}", url_encode(&config.admin_url)).trim_end_matches('/')
+        );
 
         let data = AppData {
             config,
@@ -236,6 +250,7 @@ impl AppData {
             thumbnails: CachedThumbnails::new(thumbnail_cache_size),
             static_content_hash,
             download_base_url,
+            admin_objects_base_url,
         };
 
         // Remove the upload temp area from possible previous failed uploads
@@ -247,6 +262,10 @@ impl AppData {
 
     pub fn get_download_base_url(&self) -> &str {
         &self.download_base_url
+    }
+
+    pub fn get_admin_objects_base_url(&self) -> &str {
+        &self.admin_objects_base_url
     }
 
     pub fn get_app_name(&self) -> &str {
@@ -319,9 +338,65 @@ impl AppData {
         if let Some(subobject_path) = subobject_path {
             object_fs_path.push(subobject_path);
         }
+        drop(obj);
 
-        let result = ResolvedObject::new(path, object_fs_path, obj, &self.thumbnails).await?;
+        let result = ResolvedObject::new(path, object_fs_path, &self.thumbnails).await?;
         Ok(result)
+    }
+
+    pub async fn list_objects_admin(&self) -> Result<Vec<AdminObjectInfo>> {
+        let mut result = Vec::new();
+
+        for (key, obj) in self.objects.read().await.iter() {
+            let path = self.get_object_storage_path(key, obj);
+            let metadata = fs::metadata(&path).await?;
+            result.push(AdminObjectInfo {
+                item: DirListingItem::with_metadata(&path, Arc::clone(key), &metadata),
+                ownership: obj.ownership.clone(),
+                unlisted_key: obj.unlisted_key.clone(),
+                expires: obj.expires,
+            });
+        }
+
+        Ok(result)
+    }
+
+    pub async fn delete_object(&self, object_id: &str) -> Result<()> {
+        let mut guard = self.objects.write().await;
+        let obj = guard.remove(object_id).ok_or(FiledlError::ObjectNotFound)?;
+        drop(guard);
+
+        if matches!(obj.ownership, ObjectOwnership::Owned) {
+            let path = self.get_owned_object_storage_path(object_id);
+            // Best-effort: ignore errors (file may already be gone)
+            let _ = tokio::fs::remove_file(&path).await;
+            let _ = tokio::fs::remove_dir_all(&path).await;
+        }
+        Ok(())
+    }
+
+    pub async fn create_linked_object(
+        &self,
+        object_id: Arc<str>,
+        link_path: RelativePathBuf,
+        unlisted_key: Option<Arc<str>>,
+    ) -> Result<()> {
+        // Verify the path actually exists at creation time
+        let fs_path = link_path.to_path(&self.config.linked_objects_root);
+        tokio::fs::metadata(&fs_path).await?;
+
+        let mut guard = self.objects.write().await;
+        if !guard.create(
+            Arc::clone(&object_id),
+            Object {
+                ownership: ObjectOwnership::Linked(link_path),
+                expires: None,
+                unlisted_key,
+            },
+        ) {
+            return Err(FiledlError::ObjectExists { object_id });
+        }
+        Ok(())
     }
 
     async fn object_from_id<'a>(&'a self, id: &str) -> Result<RwLockReadGuard<'a, Object>> {
@@ -348,7 +423,12 @@ impl AppData {
     }
 
     /// Creates an owned object that contains just a single file with the given content.
-    pub async fn upload_simple_object<S, E>(&self, object_id: Arc<str>, content: S) -> Result<()>
+    pub async fn upload_simple_object<S, E>(
+        &self,
+        object_id: Arc<str>,
+        content: S,
+        unlisted_key: Option<Arc<str>>,
+    ) -> Result<()>
     where
         S: Stream<Item = std::result::Result<Bytes, E>>,
         E: Into<FiledlError>,
@@ -386,7 +466,7 @@ impl AppData {
             Object {
                 ownership: ObjectOwnership::Owned,
                 expires: None,
-                unlisted_key: None,
+                unlisted_key,
             },
         ) {
             return Err(FiledlError::ObjectExists { object_id });

@@ -1,3 +1,4 @@
+mod admin_listing;
 mod breadcrumbs;
 mod dir_listing;
 mod icons_css;
@@ -6,6 +7,7 @@ pub mod util;
 
 use std::fmt::{Display, Formatter};
 
+pub use admin_listing::AdminListing;
 pub use dir_listing::DirListing;
 use horrorshow::{RenderOnce, TemplateBuffer};
 pub use icons_css::icons_css;

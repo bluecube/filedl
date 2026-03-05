@@ -22,6 +22,10 @@ fn default_download_url() -> String {
     "/download".into()
 }
 
+fn default_admin_url() -> String {
+    "/admin".into()
+}
+
 fn default_app_name() -> String {
     "Filedl".into()
 }
@@ -51,6 +55,11 @@ pub struct Config {
     /// The default `download` means that links lead to `http://server/download/`.
     #[serde(default = "default_download_url")]
     pub download_url: String,
+
+    /// URL where the admin side of the app is located.
+    /// The default `/admin` means the admin dashboard is at `http://server/admin/`.
+    #[serde(default = "default_admin_url")]
+    pub admin_url: String,
 
     #[serde(default = "default_app_name")]
     pub app_name: String,

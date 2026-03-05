@@ -1,13 +1,11 @@
-use std::fmt::{Display, Write};
-
 use super::{
     AssetUrl,
     breadcrumbs::BreadcrumbsIterator,
     page::Page,
-    util::{FormatedIsoTimestamp, url_encode},
+    util::{FormatedIsoTimestamp, ItemUrl, ThumbnailImg, url_encode},
 };
 use chrono_tz::Tz;
-use horrorshow::{RenderOnce, TemplateBuffer, html, labels_sep_by};
+use horrorshow::{RenderOnce, TemplateBuffer, html};
 use humansize::{BINARY, format_size};
 
 use crate::app_data::{AppData, DirListingItem, ItemType};
@@ -77,18 +75,7 @@ impl<'a> DirListing<'a> {
                     }
                     ), href = url.clone()) {
                     @ if item.is_thumbnailable {
-                        img(
-                            src = url.thumbnail(64, None),
-                            srcset = labels_sep_by!(
-                                ",";
-                                format_args!("{} {}w", url.thumbnail(64, None), 64),
-                                format_args!("{} {}w", url.thumbnail(128, None), 128),
-                                format_args!("{} {}w", url.thumbnail(256, None), 256)
-                            ),
-                            sizes = "4em",
-                            loading = "lazy",
-                            alt = ""
-                        );
+                        : ThumbnailImg(url.clone());
                     }
                     span(class = "underlined") {
                         : item.name.as_ref();
@@ -196,41 +183,11 @@ impl RenderOnce for DirListing<'_> {
     }
 }
 
-#[derive(Clone)]
-struct ItemUrl<'a> {
-    download_base_url: &'a str,
-    directory_path: &'a str,
-    item_name: &'a str,
-    unlisted_key: Option<&'a str>,
-}
-
-impl Display for ItemUrl<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.download_base_url)?;
-        if !self.directory_path.is_empty() {
-            write!(f, "/{}", url_encode(self.directory_path))?;
-        }
-        if !self.item_name.is_empty() {
-            write!(f, "/{}", url_encode(self.item_name))?;
-        }
-        if let Some(unlisted_key) = self.unlisted_key {
-            write!(f, "?key={}", unlisted_key)?;
-        }
-
-        Ok(())
-    }
-}
-
-impl RenderOnce for ItemUrl<'_> {
-    fn render_once(self, tmpl: &mut TemplateBuffer<'_>) {
-        tmpl << format_args!("{}", self);
-    }
-}
-
+// Local constructors for ItemUrl that take DirListing-specific arguments.
 impl<'a> ItemUrl<'a> {
     fn new(dl: &'a DirListing, item: &'a DirListingItem) -> Self {
         ItemUrl {
-            download_base_url: dl.download_base_url,
+            base_url: dl.download_base_url,
             directory_path: dl.directory_path,
             item_name: &item.name,
             unlisted_key: dl.unlisted_key,
@@ -239,52 +196,11 @@ impl<'a> ItemUrl<'a> {
 
     fn without_item(dl: &'a DirListing) -> Self {
         ItemUrl {
-            download_base_url: dl.download_base_url,
+            base_url: dl.download_base_url,
             directory_path: dl.directory_path,
             item_name: "",
             unlisted_key: dl.unlisted_key,
         }
-    }
-
-    fn thumbnail(&self, resolution: u32, cache_hash: Option<u64>) -> ThumbnailUrl<'a> {
-        ThumbnailUrl {
-            item: self.clone(),
-            resolution,
-            cache_hash,
-        }
-    }
-
-    fn next_qs_separator(&self) -> char {
-        if self.unlisted_key.is_some() {
-            '&'
-        } else {
-            '?'
-        }
-    }
-}
-
-struct ThumbnailUrl<'a> {
-    item: ItemUrl<'a>,
-    resolution: u32,
-    cache_hash: Option<u64>,
-}
-
-impl Display for ThumbnailUrl<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.item)?;
-        f.write_char(self.item.next_qs_separator())?;
-        write!(f, "mode=thumbnail&size={}", self.resolution)?;
-        if let Some(hash) = self.cache_hash {
-            write!(f, "&cache_hash={:08x}", hash)?;
-        }
-
-        Ok(())
-    }
-}
-
-impl RenderOnce for ThumbnailUrl<'_> {
-    fn render_once(self, tmpl: &mut TemplateBuffer<'_>) {
-        tmpl << format_args!("{}", self);
     }
 }
 

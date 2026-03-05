@@ -1,6 +1,7 @@
 $body-bg: #F2F4F5;
 $content-bg: #B3CDD5;
 $item-bg: #DAE1E4;
+$admin-accent: #D08030;
 
 $base-text: #333;
 $gallery-text: #ccc;
@@ -19,14 +20,21 @@ a:link, a:visited {
     color: $base-text;
 }
 
+h1, h2 , nav, .app-name {
+    color: $base-text;
+    font-family: "Lucida Console", Courier, monospace;
+    font-weight: bold;
+}
+
+h1, h2 {
+    font-size: 140%;
+}
+
 nav {
     margin-top: 1em;
     margin-bottom: 3em;
 
     &, a, a:link {
-        color: $base-text;
-        font-family: "Lucida Console", Courier, monospace;
-        font-weight: bold;
     }
 
     .app-name {
@@ -35,7 +43,6 @@ nav {
     }
 
     h1 {
-        font-size: 140%;
         margin: 0;
 
         img {
@@ -62,6 +69,21 @@ nav {
     margin-top: 1em;
     margin-bottom: 1em;
     clip-path: inset(0 -100vmax);
+    position: relative; // anchor for ::before
+
+}
+
+#content.admin{
+    padding-top: 1.2em;
+    &::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100vmax;
+        right: -100vmax;
+        height: 0.5em;
+        background: $admin-accent;
+    }
 }
 
 .download-all {
@@ -87,6 +109,15 @@ nav {
     }
 }
 
+@mixin item {
+        border: 0.05em solid $base-text;
+        border-radius: 0.3em;
+        background-color: $item-bg;
+        margin: .2em 0 .2em 0;
+        min-height: 2.5em;
+        padding: 0.8em;
+}
+
 ul.dir-listing {
     width: 100%;
     margin: 0;
@@ -95,14 +126,9 @@ ul.dir-listing {
     padding-bottom: -0.2em;
 
     li {
+        @include item;
         list-style-type: none;
-        border: 0.05em solid $base-text;
-        border-radius: 0.3em;
-        background-color: $item-bg;
-        margin: .2em 0 .2em 0;
         padding: 0.3em;
-        padding-right: 0.8em;
-        min-height: 2.5em;
         display: flex;
         justify-content: flex-end;
         flex-wrap: wrap;
@@ -340,4 +366,30 @@ footer {
 
 .hidden {
     visibility: hidden;
+}
+
+#create-form {
+    @include item;
+
+    margin-top: 2em;
+
+    h2 {
+        margin-top: 0;
+    }
+    label {
+        width: 5em;
+        display: inline-block;
+        padding: 0 0.5em 0 0.5em;
+    }
+    button {
+        margin-top: 0.5em;
+        width: 100%;
+    }
+    input[type=radio], input[type=checkbox] {
+        margin: 0;
+    }
+    input.inactive {
+        opacity: 0.4;
+        cursor: pointer;
+    }
 }
