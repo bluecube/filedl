@@ -9,7 +9,7 @@ async function deleteObject(button) {
 const form = document.getElementById('create-form');
 const fileInput = form.querySelector('[name=file]');
 const pathInput = form.querySelector('[name=path]');
-const idInput = form.querySelector('[name=object-id]');
+const idInput = document.getElementById('object-id');
 const overrideCheckbox = form.querySelector('[name=override-id]');
 
 function derivedId() {
@@ -29,8 +29,10 @@ function syncId() {
 }
 
 overrideCheckbox.addEventListener('change', () => {
-    idInput.readOnly = !overrideCheckbox.checked;
-    if (!overrideCheckbox.checked) idInput.value = derivedId();
+    const enabled = overrideCheckbox.checked;
+    idInput.readOnly = !enabled;
+    idInput.classList.toggle('inactive', !enabled);
+    if (!enabled) idInput.value = derivedId();
 });
 
 function setMode(mode) {
@@ -52,6 +54,13 @@ fileInput.addEventListener('click', () => {
 pathInput.addEventListener('focus', () => {
     form.querySelector('[name=mode][value=link]').checked = true;
     setMode('link');
+});
+
+idInput.addEventListener('focus', () => {
+    if (!overrideCheckbox.checked) {
+        overrideCheckbox.checked = true;
+        overrideCheckbox.dispatchEvent(new Event('change'));
+    }
 });
 
 fileInput.addEventListener('change', syncId);

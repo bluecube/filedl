@@ -175,7 +175,7 @@ impl RenderOnce for AdminListing<'_> {
                     div {
                         input(type = "checkbox", name = "override-id");
                         label(for = "object-id"): "ID";
-                        input(type = "text", name = "object-id", id="object-id", required, readonly);
+                        input(type = "text", name = "object-id", id="object-id", class="inactive", required, readonly);
                     }
 
                     div {
