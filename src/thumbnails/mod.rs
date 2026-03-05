@@ -75,8 +75,7 @@ pub fn create_thumbnail(
     resolution: (u32, u32),
     thumbnail_type: ThumbnailType,
 ) -> Result<Bytes> {
-    let extension = file.extension().and_then(|s| s.to_str());
-    let thumb = if extension == Some("pdf") {
+    let thumb = if is_path_pdf(file) {
         create_pdf_thumbnail(file, resolution)
     } else {
         create_image_thumbnail(file, resolution)
@@ -101,17 +100,24 @@ pub fn create_thumbnail(
 /// Returns a hash describing the source image, if it is thumbnailable,
 /// otherwise returns None.
 pub fn is_thumbnailable(path: &Path) -> bool {
+    if is_path_pdf(path) {
+        return true;
+    }
     let Some(extension) = path.extension() else {
         return false;
     };
-    if extension == "pdf" {
-        return true;
-    }
     let Some(format) = ImageFormat::from_extension(extension) else {
         return false;
     };
 
     format.can_read()
+}
+
+fn is_path_pdf(path: &Path) -> bool {
+    let Some(extension) = path.extension() else {
+        return false;
+    };
+    extension.eq_ignore_ascii_case("pdf")
 }
 
 fn blend_background(img: RgbaImage, background_color: Rgb<u8>) -> RgbImage {
