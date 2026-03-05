@@ -13,6 +13,11 @@ let descriptionBlock = null;
 let downloadLink = null;
 
 function galleryInit() {
+    galleryBg = document.getElementById("gallery");
+    if (!galleryBg) {
+        return;
+    }
+
     document.querySelectorAll(".dir-listing li").forEach(entry => {
         let mainLink = entry.querySelector(".main-link");
 
@@ -43,7 +48,6 @@ function galleryInit() {
         mainLink.href = hashForIndex(index);
     });
 
-    galleryBg = document.getElementById("gallery");
     galleryImgWrap = galleryBg.querySelector(".img-wrap");
     galleryImg = galleryImgWrap.querySelector("img.main");
     progressBar = galleryImgWrap.querySelector("progress");
