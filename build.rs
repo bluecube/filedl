@@ -150,9 +150,9 @@ fn minify_js(source: &Path, name: &Path) -> anyhow::Result<Vec<(PathBuf, Vec<u8>
         .with_scoping(minified.scoping)
         .build(&program);
     let minified_code = format!(
-        "//# sourceMappingURL={}?mode=assets\n{}",
+        "{}\n//# sourceMappingURL={}?mode=assets",
+        minified_codegen.code,
         sourcemap_name.display(),
-        minified_codegen.code
     )
     .into_bytes();
 
