@@ -215,6 +215,7 @@ time .separator {
     top: 0;
     bottom: 0;
     background-color: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(0.2em);
     display: none;
 
     flex-direction: column;
