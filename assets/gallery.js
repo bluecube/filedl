@@ -138,8 +138,6 @@ function setCurrentBasedOnHash() {
 }
 
 function bgOnclick(event) {
-    console.log(event.target);
-    console.log(event.currentTarget);
     if (event.target !== event.currentTarget)
         return;
     closeGallery();
