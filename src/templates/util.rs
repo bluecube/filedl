@@ -1,5 +1,5 @@
 use chrono::{DateTime, Datelike, TimeZone, Timelike};
-use horrorshow::{RenderOnce, TemplateBuffer, html};
+use horrorshow::{Raw, RenderOnce, TemplateBuffer, html};
 use std::fmt::{Display, Formatter};
 
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, PercentEncode, utf8_percent_encode};
@@ -108,6 +108,50 @@ where
     }
 }
 
+pub struct Ellipsis<'a> {
+    text: &'a str,
+    /// Strings with char count > this get ellipsized
+    max_len: usize,
+    /// Number of trailing chars to show after the ellipsis
+    tail_len: usize,
+}
+
+impl<'a> Ellipsis<'a> {
+    pub fn new(text: &'a str, max_len: usize, tail_len: usize) -> Self {
+        debug_assert!(
+            tail_len < max_len,
+            "tail_len ({tail_len}) must be less than max_len ({max_len})"
+        );
+        Self {
+            text,
+            max_len,
+            tail_len,
+        }
+    }
+}
+
+impl RenderOnce for Ellipsis<'_> {
+    fn render_once(self, tmpl: &mut TemplateBuffer<'_>) {
+        let char_count = self.text.chars().count();
+        if char_count <= self.max_len {
+            tmpl << html! { : self.text };
+        } else {
+            let mut chars = self.text.chars();
+            let skip = char_count.saturating_sub(self.tail_len);
+            for _ in 0..skip {
+                chars.next();
+            }
+            let tail = chars.as_str();
+            tmpl << html! {
+                abbr(title = self.text) {
+                    : Raw("&hellip;");
+                    : tail;
+                }
+            };
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,6 +165,43 @@ mod tests {
         assert!(
             super::url_encode("hello world/a._-b&c=1").to_string() == "hello%20world/a._-b%26c%3D1"
         );
+    }
+
+    #[test]
+    fn ellipsis_short_text_renders_plain() {
+        let rendered = Ellipsis::new("short", 10, 5).into_string().unwrap();
+        assert!(rendered == "short");
+    }
+
+    #[test]
+    fn ellipsis_exact_max_len_renders_plain() {
+        let rendered = Ellipsis::new("1234567890", 10, 5).into_string().unwrap();
+        assert!(rendered == "1234567890");
+    }
+
+    #[test]
+    fn ellipsis_long_text_renders_abbr_with_tail() {
+        let rendered = Ellipsis::new("/home/user/documents/file.txt", 15, 10)
+            .into_string()
+            .unwrap();
+        assert!(rendered.contains("<abbr"));
+        assert!(rendered.contains("title=\"/home/user/documents/file.txt\""));
+        assert!(rendered.contains("&hellip;"));
+        assert!(rendered.contains("s/file.txt")); // last 10 chars
+    }
+
+    #[test]
+    fn ellipsis_empty_string() {
+        let rendered = Ellipsis::new("", 10, 5).into_string().unwrap();
+        assert!(rendered == "");
+    }
+
+    #[test]
+    fn ellipsis_multibyte_chars() {
+        // "äöüß" is 4 chars but 8 bytes
+        let rendered = Ellipsis::new("äöüß", 3, 2).into_string().unwrap();
+        assert!(rendered.contains("<abbr"));
+        assert!(rendered.contains("üß")); // last 2 chars
     }
 
     #[test]

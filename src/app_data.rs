@@ -22,7 +22,7 @@ use std::{
 use tokio::{
     fs,
     io::AsyncWriteExt,
-    sync::{RwLock, RwLockReadGuard},
+    sync::{RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard},
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -380,6 +380,7 @@ impl AppData {
         object_id: Arc<str>,
         link_path: RelativePathBuf,
         unlisted_key: Option<Arc<str>>,
+        expires: Option<DateTime<Utc>>,
     ) -> Result<()> {
         // Verify the path actually exists at creation time
         let fs_path = link_path.to_path(&self.config.linked_objects_root);
@@ -390,7 +391,7 @@ impl AppData {
             Arc::clone(&object_id),
             Object {
                 ownership: ObjectOwnership::Linked(link_path),
-                expires: None,
+                expires,
                 unlisted_key,
             },
         ) {
@@ -422,12 +423,23 @@ impl AppData {
         Ok(result)
     }
 
+    pub async fn get_object_mut(
+        &self,
+        object_id: &str,
+    ) -> Result<RwLockMappedWriteGuard<'_, Object>> {
+        RwLockWriteGuard::try_map(self.objects.write().await, |storage| {
+            storage.get_mut(object_id)
+        })
+        .map_err(|_| FiledlError::ObjectNotFound)
+    }
+
     /// Creates an owned object that contains just a single file with the given content.
     pub async fn upload_simple_object<S, E>(
         &self,
         object_id: Arc<str>,
         content: S,
         unlisted_key: Option<Arc<str>>,
+        expires: Option<DateTime<Utc>>,
     ) -> Result<()>
     where
         S: Stream<Item = std::result::Result<Bytes, E>>,
@@ -465,7 +477,7 @@ impl AppData {
             Arc::clone(&object_id),
             Object {
                 ownership: ObjectOwnership::Owned,
-                expires: None,
+                expires,
                 unlisted_key,
             },
         ) {

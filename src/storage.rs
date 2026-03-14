@@ -24,6 +24,15 @@ impl<T: Serialize + DeserializeOwned> Storage<T> {
         self.map.get(key)
     }
 
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut T> {
+        if self.map.contains_key(key) {
+            self.make_dirty();
+            self.map.get_mut(key)
+        } else {
+            None
+        }
+    }
+
     pub fn set(&mut self, key: Arc<str>, value: T) -> Option<T> {
         self.make_dirty();
         self.map.insert(key, value)

@@ -121,7 +121,7 @@ async fn admin_upload_unlisted_returns_key_in_url() {
     let (_dir, app) = test_app!();
 
     let req = test::TestRequest::put()
-        .uri("/admin/objects/secret?unlisted=true")
+        .uri("/admin/objects/secret?unlisted_key=mysecretkey")
         .set_payload("secret content")
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -129,7 +129,7 @@ async fn admin_upload_unlisted_returns_key_in_url() {
 
     let body: serde_json::Value = test::read_body_json(resp).await;
     let download_url = body["download_url"].as_str().unwrap();
-    assert!(download_url.starts_with("/download/secret?key="));
+    assert_eq!(download_url, "/download/secret?key=mysecretkey");
 
     // object is accessible with the key
     let req = test::TestRequest::get().uri(download_url).to_request();
@@ -155,7 +155,7 @@ async fn admin_dashboard_lists_all_objects_including_unlisted() {
     test::call_service(&app, req).await;
 
     let req = test::TestRequest::put()
-        .uri("/admin/objects/hidden?unlisted=true")
+        .uri("/admin/objects/hidden?unlisted_key=hiddenkey")
         .set_payload("b")
         .to_request();
     test::call_service(&app, req).await;
@@ -168,6 +168,161 @@ async fn admin_dashboard_lists_all_objects_including_unlisted() {
     let html = std::str::from_utf8(&body).unwrap();
     assert!(html.contains("public"));
     assert!(html.contains("hidden"));
+}
+
+#[actix_web::test]
+async fn patch_public_to_unlisted() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/myfile")
+        .set_payload("content")
+        .to_request();
+    test::call_service(&app, req).await;
+
+    let req = test::TestRequest::patch()
+        .uri("/admin/objects/myfile")
+        .set_json(serde_json::json!({"unlisted_key": "mykey", "expires": null}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::get()
+        .uri("/download/myfile?key=mykey")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::get()
+        .uri("/download/myfile")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+}
+
+#[actix_web::test]
+async fn patch_unlisted_to_public() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/myfile?unlisted_key=somekey")
+        .set_payload("content")
+        .to_request();
+    test::call_service(&app, req).await;
+
+    let req = test::TestRequest::patch()
+        .uri("/admin/objects/myfile")
+        .set_json(serde_json::json!({"unlisted_key": null, "expires": null}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::get()
+        .uri("/download/myfile")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn patch_changes_unlisted_key() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/myfile?unlisted_key=somekey")
+        .set_payload("content")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    let old_url = body["download_url"].as_str().unwrap().to_owned();
+
+    let req = test::TestRequest::patch()
+        .uri("/admin/objects/myfile")
+        .set_json(serde_json::json!({"unlisted_key": "newkey", "expires": null}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::get()
+        .uri("/download/myfile?key=newkey")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::get().uri(&old_url).to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+}
+
+#[actix_web::test]
+async fn patch_nonexistent_returns_404() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::patch()
+        .uri("/admin/objects/nosuchobject")
+        .set_json(serde_json::json!({"unlisted_key": null, "expires": null}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+}
+
+#[actix_web::test]
+async fn patch_sets_expiry() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/myfile")
+        .set_payload("content")
+        .to_request();
+    test::call_service(&app, req).await;
+
+    let req = test::TestRequest::patch()
+        .uri("/admin/objects/myfile")
+        .set_json(serde_json::json!({"unlisted_key": null, "expires": "2099-01-01T00:00:00Z"}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn patch_clears_expiry() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/myfile")
+        .set_payload("content")
+        .to_request();
+    test::call_service(&app, req).await;
+
+    // First set an expiry
+    let req = test::TestRequest::patch()
+        .uri("/admin/objects/myfile")
+        .set_json(serde_json::json!({"unlisted_key": null, "expires": "2099-01-01T00:00:00Z"}))
+        .to_request();
+    test::call_service(&app, req).await;
+
+    // Then clear it
+    let req = test::TestRequest::patch()
+        .uri("/admin/objects/myfile")
+        .set_json(serde_json::json!({"unlisted_key": null, "expires": null}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn admin_create_with_expiry() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/expiring?expires=2099-01-01T00%3A00%3A00Z")
+        .set_payload("content")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status().is_success());
+
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    assert_eq!(body["download_url"], "/download/expiring");
 }
 
 #[actix_web::test]

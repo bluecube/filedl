@@ -1,7 +1,7 @@
 use super::{
     AssetUrl,
     page::Page,
-    util::{FormatedIsoTimestamp, ItemUrl, ThumbnailImg, url_encode},
+    util::{Ellipsis, FormatedIsoTimestamp, ItemUrl, ThumbnailImg},
 };
 use chrono_tz::Tz;
 use horrorshow::{RenderOnce, TemplateBuffer, html};
@@ -57,32 +57,73 @@ impl<'a> AdminListing<'a> {
         }
     }
 
+    fn render_key_expiry_controls(tmpl: &mut TemplateBuffer<'_>, expiry_radio_name: &str) {
+        tmpl << html!(
+            div(class = "form-section") {
+                input(type = "checkbox");
+                label: "Unlisted";
+                input(type = "text", placeholder = "key");
+                button(type = "button", onclick = "generateKey(event)"): "Generate";
+            }
+            div(class = "form-section") {
+                input(type = "checkbox");
+                label: "Expires";
+                div(class = "expiry-presets") {
+                    div {
+                        label {
+                            input(type = "radio", name = expiry_radio_name, value = "1h");
+                            : " 1h";
+                        }
+                        label {
+                            input(type = "radio", name = expiry_radio_name, value = "4h");
+                            : " 4h";
+                        }
+                        label {
+                            input(type = "radio", name = expiry_radio_name, value = "1d");
+                            : " 1d";
+                        }
+                        label {
+                            input(type = "radio", name = expiry_radio_name, value = "1w");
+                            : " 1w";
+                        }
+                        label {
+                            input(type = "radio", name = expiry_radio_name, value = "1mo");
+                            : " 1mo";
+                        }
+                        label {
+                            input(type = "radio", name = expiry_radio_name, value = "1y");
+                            : " 1y";
+                        }
+                    }
+                    div {
+                        label {
+                            input(type = "radio", name = expiry_radio_name, value = "custom");
+                            : " Custom: ";
+                            input(type = "datetime-local", class = "expiry-custom");
+                        }
+                    }
+                }
+            }
+        );
+    }
+
     fn render_item(&self, tmpl: &mut TemplateBuffer<'_>, info: &AdminObjectInfo) {
         let item = &info.item;
-        let item_url = ItemUrl {
+        let objects_url = ItemUrl {
             base_url: self.objects_base_url,
             directory_path: "",
             item_name: item.name.as_ref(),
             unlisted_key: info.unlisted_key.as_deref(),
         };
-        let download_url = match &info.unlisted_key {
-            Some(key) => format!(
-                "{}/{}?key={}",
-                self.download_base_url,
-                url_encode(&item.name),
-                key
-            ),
-            None => format!("{}/{}", self.download_base_url, url_encode(&item.name)),
+        let download_url = ItemUrl {
+            base_url: self.download_base_url,
+            directory_path: "",
+            item_name: item.name.as_ref(),
+            unlisted_key: info.unlisted_key.as_deref(),
         };
-        let ownership_display = match &info.ownership {
-            ObjectOwnership::Owned => "Owned".to_owned(),
-            ObjectOwnership::Linked(path) => format!("Linked: {}", path),
-        };
-        let visibility_display = if info.unlisted_key.is_some() {
-            "Unlisted"
-        } else {
-            "Public"
-        };
+        let objects_url_str = format!("{}", objects_url);
+        let key_str = info.unlisted_key.as_deref().unwrap_or("");
+        let expires = info.expires.map(|e| e.to_rfc3339()).unwrap_or_default();
         let thumbnail_class = if item.is_thumbnailable {
             "main-link"
         } else {
@@ -90,9 +131,12 @@ impl<'a> AdminListing<'a> {
         };
         tmpl << html!(
             li(class = format_args!("{} admin-object", item.item_type)) {
-                a(class = thumbnail_class, href = download_url.as_str()) {
+                a(
+                    class = thumbnail_class,
+                    href = format_args!("{}", download_url)
+                ) {
                     @ if item.is_thumbnailable {
-                        : ThumbnailImg(item_url);
+                        : ThumbnailImg(objects_url);
                     }
                     span(class = "underlined") {
                         : item.name.as_ref();
@@ -100,11 +144,21 @@ impl<'a> AdminListing<'a> {
                             : "/";
                         }
                     }
+                    @ if info.unlisted_key.is_some() {
+                        img(src = self.asset_url("hidden.svg"), class = "unlisted", alt = "unlisted", title = "unlisted");
+                    }
                 }
                 div(class = "details-outer") {
                     div(class = "details-inner") {
-                        span(class = "ownership"): ownership_display.as_str();
-                        span(class = "visibility"): visibility_display;
+                        @ match &info.ownership {
+                            ObjectOwnership::Owned => { span(class = "ownership"): "Owned"; }
+                            ObjectOwnership::Linked(path) => {
+                                span(class = "ownership") {
+                                    : "Linked: ";
+                                    : Ellipsis::new(path.as_str(), 30, 25);
+                                }
+                            }
+                        }
                         @ if item.item_type != ItemType::Directory {
                             span(class = "size"): format_size(item.file_size, BINARY);
                         }
@@ -112,11 +166,20 @@ impl<'a> AdminListing<'a> {
                             : FormatedIsoTimestamp(modified.with_timezone(self.display_timezone));
                         }
                     }
-                    button(
-                        type = "button",
-                        value = item.name.as_ref(),
-                        onclick = "deleteObject(this)"
-                    ): "Delete";
+                    div(class = "details-inner") {
+                        button(
+                            type = "button",
+                            onclick = "copyItemUrl(this)"
+                        ): "Copy URL";
+                        button(
+                            type = "button",
+                            onclick = "openEdit(this)",
+                            data_id = item.name.as_ref(),
+                            data_objects_url = objects_url_str.as_str(),
+                            data_key = key_str,
+                            data_expires = expires.as_str()
+                        ): "Edit";
+                    }
                 }
             }
         );
@@ -152,7 +215,7 @@ impl RenderOnce for AdminListing<'_> {
                     }
                 }
 
-                form(id = "create-form") {
+                form(id = "add-form") {
                     h2: "Add object";
 
                     div {
@@ -164,29 +227,34 @@ impl RenderOnce for AdminListing<'_> {
                     div {
                         input(type = "radio", name = "mode", id="mode-link", value = "link");
                         label(for = "mode-link"): "Link";
-                        input(
-                            type = "text",
-                            name = "path",
-                            placeholder = "path/to/file",
-                            class = "inactive"
-                        );
+                        input(type = "text", name = "path", placeholder = "Path to file");
                     }
 
-                    div {
+                    div(class = "form-section") {
                         input(type = "checkbox", name = "override-id");
                         label(for = "object-id"): "ID";
-                        input(type = "text", name = "object-id", id="object-id", class="inactive", required, readonly);
+                        input(type = "text", name = "object-id", id="object-id", placeholder = "Override object ID");
                     }
 
-                    div {
-                        input(type = "checkbox", name = "unlisted", id = "unlisted");
-                        label(for = "unlisted"): "Unlisted";
-                    }
+                    |tmpl| AdminListing::render_key_expiry_controls(tmpl, "add-expiry");
 
                     button(type = "submit"): "Add";
                     span(class = "result");
                 }
 
+            }
+
+            section(id = "edit-overlay", onclick = "editBackgroundClick(event)") {
+                form {
+                    h2(id = "edit-title");
+                    |tmpl| AdminListing::render_key_expiry_controls(tmpl, "edit-expiry");
+                    div {
+                        button(type = "button", onclick = "editSave()"): "Save";
+                        button(type = "button", onclick = "editDelete()"): "Delete";
+                        button(type = "button", onclick = "closeEdit()"): "Cancel";
+                    }
+                    span(id = "edit-result");
+                }
             }
 
             script(src = self.asset_url("admin.min.js"), defer);

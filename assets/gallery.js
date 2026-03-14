@@ -68,7 +68,7 @@ function galleryInit() {
 }
 
 function openGallery() {
-    document.body.classList.add("gallery-visible");
+    document.body.classList.add("covered");
     document.addEventListener("keydown", keydown);
 }
 
@@ -80,7 +80,7 @@ function closeGallery() {
 
 function closeGalleryNoHistory() {
     currentIndex = null;
-    document.body.classList.remove("gallery-visible");
+    document.body.classList.remove("covered");
 }
 
 function hashForIndex(index) {
