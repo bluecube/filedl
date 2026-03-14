@@ -14,7 +14,7 @@ pub use icons_css::icons_css;
 
 #[derive(Clone)]
 struct AssetUrl<'a> {
-    download_base_url: &'a str,
+    base_url: &'a str,
     file_name: &'a str,
     cache_hash: &'a str,
 }
@@ -24,7 +24,7 @@ impl Display for AssetUrl<'_> {
         write!(
             f,
             "{}/{}?mode=assets&cache_hash={}",
-            self.download_base_url, self.file_name, self.cache_hash
+            self.base_url, self.file_name, self.cache_hash
         )
     }
 }

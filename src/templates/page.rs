@@ -4,9 +4,10 @@ use horrorshow::{RenderOnce, helper::doctype, html, prelude::TemplateBuffer};
 
 /// Wrapper around a template that provides the header and footer.
 pub struct Page<'a, T, C> {
-    pub download_base_url: &'a str,
+    pub asset_base_url: &'a str,
     pub static_content_hash: &'a str,
     pub display_timezone: &'a Tz,
+    pub head_script: &'a str,
 
     pub title: T,
     pub content: C,
@@ -39,7 +40,7 @@ impl<T: RenderOnce, C: RenderOnce> RenderOnce for Page<'_, T, C> {
                         href = self.asset_url("icons.css")
                     );
                     script(
-                        src = self.asset_url("gallery.min.js"),
+                        src = self.asset_url(self.head_script),
                         defer
                     );
                     title: self.title;
@@ -70,7 +71,7 @@ impl<T: RenderOnce, C: RenderOnce> RenderOnce for Page<'_, T, C> {
 impl<'a, T: RenderOnce, C: RenderOnce> Page<'a, T, C> {
     fn asset_url(&self, file_name: &'a str) -> AssetUrl<'a> {
         AssetUrl {
-            download_base_url: self.download_base_url,
+            base_url: self.asset_base_url,
             file_name,
             cache_hash: self.static_content_hash,
         }

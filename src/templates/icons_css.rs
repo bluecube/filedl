@@ -1,8 +1,8 @@
 use crate::templates::AssetUrl;
 
-pub fn icons_css(download_base_url: &str, cache_hash: &str) -> String {
+pub fn icons_css(base_url: &str, cache_hash: &str) -> String {
     let asset_url = |file_name| AssetUrl {
-        download_base_url,
+        base_url,
         file_name,
         cache_hash,
     };

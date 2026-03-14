@@ -47,7 +47,8 @@ impl<'a> AdminListing<'a> {
             items,
         };
         Page {
-            download_base_url: app.get_download_base_url(),
+            asset_base_url: app.get_admin_objects_base_url(),
+            head_script: "admin.min.js",
             title: Title {
                 app_name: app.get_app_name(),
             },
@@ -187,7 +188,7 @@ impl<'a> AdminListing<'a> {
 
     fn asset_url(&self, file_name: &'a str) -> AssetUrl<'a> {
         AssetUrl {
-            download_base_url: self.download_base_url,
+            base_url: self.objects_base_url,
             file_name,
             cache_hash: self.static_content_hash,
         }
@@ -257,7 +258,6 @@ impl RenderOnce for AdminListing<'_> {
                 }
             }
 
-            script(src = self.asset_url("admin.min.js"), defer);
         );
     }
 }
