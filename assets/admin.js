@@ -202,12 +202,6 @@ function derivedId() {
     }
 }
 
-function syncId() {
-    if (!overrideCheckbox.checked) {
-        idInput.value = derivedId();
-    }
-}
-
 overrideCheckbox.addEventListener('change', () => {
     if (!overrideCheckbox.checked) idInput.value = derivedId();
 });
@@ -216,7 +210,6 @@ function setMode(mode) {
     const uploadMode = mode === 'upload';
     fileInput.classList.toggle('inactive', !uploadMode);
     pathInput.classList.toggle('inactive', uploadMode);
-    syncId();
 }
 
 form.querySelectorAll('[name=mode]').forEach(radio => {
@@ -233,12 +226,9 @@ pathInput.addEventListener('focus', () => {
     setMode('link');
 });
 
-fileInput.addEventListener('change', syncId);
-pathInput.addEventListener('input', syncId);
-
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const id = idInput.value;
+    const id = overrideCheckbox.checked ? idInput.value : derivedId();
     const mode = form.querySelector('[name=mode]:checked').value;
     const result = form.querySelector('.result');
 
