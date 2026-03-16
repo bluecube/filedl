@@ -57,8 +57,22 @@ impl<T: Serialize + DeserializeOwned> Storage<T> {
         self.map.remove(key)
     }
 
+    /// Retain only the elements for which predicate returns `true`.
+    /// Only marks storage as dirty if entries were actually removed.
+    pub fn retain<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&Arc<str>, &T) -> bool,
+    {
+        let len_before = self.map.len();
+        self.map.retain(|k, v| f(k, v));
+        if self.map.len() != len_before {
+            self.make_dirty();
+        }
+    }
+
     /// Immediately (and unconditionally) dump the content to the file
     pub fn dump(&mut self) -> std::io::Result<()> {
+        log::debug!("Writing storage to {}", self.file.display());
         let f = File::create(&self.file)?;
         serde_json::to_writer(f, &self.map)?;
         self.dirty = false;
@@ -85,6 +99,10 @@ impl<T: Serialize + DeserializeOwned> Storage<T> {
         self.map.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
     pub fn is_dirty(&self) -> bool {
         self.dirty
     }
@@ -95,14 +113,6 @@ impl<T: Serialize + DeserializeOwned> Storage<T> {
 
     fn make_dirty(&mut self) {
         self.dirty = true;
-    }
-}
-
-impl<T: Serialize + DeserializeOwned> Drop for Storage<T> {
-    fn drop(&mut self) {
-        if self.dirty {
-            self.dump().expect("Dumping Storage failed");
-        }
     }
 }
 
@@ -160,6 +170,44 @@ mod tests {
         assert!(s.is_dirty());
         s.dump().unwrap();
         assert!(!s.is_dirty());
+    }
+
+    #[test]
+    fn retain_removes_entries() {
+        let (_dir, mut s) = fresh();
+        s.create(Arc::from("keep"), "yes".into());
+        s.create(Arc::from("drop"), "no".into());
+        s.dump().unwrap();
+
+        s.retain(|_, v| v == "yes");
+        assert!(s.get("keep") == Some(&"yes".to_string()));
+        assert!(s.get("drop") == None);
+        assert!(s.len() == 1);
+    }
+
+    #[test]
+    fn retain_dirty_only_when_removed() {
+        let (_dir, mut s) = fresh();
+        s.create(Arc::from("a"), "keep".into());
+        s.dump().unwrap();
+        assert!(!s.is_dirty());
+
+        // Retain everything — should not mark dirty
+        s.retain(|_, _| true);
+        assert!(!s.is_dirty());
+    }
+
+    #[test]
+    fn retain_dirty_when_removed() {
+        let (_dir, mut s) = fresh();
+        s.create(Arc::from("a"), "keep".into());
+        s.create(Arc::from("b"), "drop".into());
+        s.dump().unwrap();
+        assert!(!s.is_dirty());
+
+        // Remove one entry — should mark dirty
+        s.retain(|k, _| k.as_ref() == "a");
+        assert!(s.is_dirty());
     }
 
     #[test]

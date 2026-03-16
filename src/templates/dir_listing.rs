@@ -8,6 +8,8 @@ use chrono_tz::Tz;
 use horrorshow::{RenderOnce, TemplateBuffer, html};
 use humansize::{BINARY, format_size};
 
+use chrono::{DateTime, Utc};
+
 use crate::app_data::{AppData, DirListingItem, ItemType};
 
 pub struct DirListing<'a> {
@@ -17,6 +19,7 @@ pub struct DirListing<'a> {
     directory_path: &'a str,
     static_content_hash: &'a str,
     unlisted_key: Option<&'a str>,
+    expires: Option<DateTime<Utc>>,
     items: Vec<DirListingItem>,
 }
 
@@ -25,6 +28,7 @@ impl<'a> DirListing<'a> {
         app: &'a AppData,
         directory_path: &'a str,
         unlisted_key: Option<&'a str>,
+        expires: Option<DateTime<Utc>>,
         mut items: Vec<DirListingItem>,
     ) -> Page<'a, Title<'a>, DirListing<'a>> {
         let mut collator = feruca::Collator::default();
@@ -37,6 +41,7 @@ impl<'a> DirListing<'a> {
             directory_path,
             static_content_hash: app.get_static_content_hash(),
             unlisted_key,
+            expires,
             items,
         };
         Page {
@@ -95,6 +100,12 @@ impl<'a> DirListing<'a> {
                         @ if let Some(modified) = item.modified {
                             : FormatedIsoTimestamp(modified.with_timezone(self.display_timezone))
                         }
+                        @ if let Some(expires) = item.expires {
+                            span(class = "expiry") {
+                                : "Expires: ";
+                                : FormatedIsoTimestamp(expires.with_timezone(self.display_timezone))
+                            }
+                        }
                     }
                     a(class = "download", href = format_args!("{}{}mode=download", url, url.next_qs_separator())) {
                         img(src = self.asset_url("download.svg"), alt = "Download", title = "Download");
@@ -128,6 +139,12 @@ impl RenderOnce for DirListing<'_> {
                     |tmpl| self.render_breadcrumbs(tmpl);
                     @ if self.unlisted_key.is_some() {
                         img(src = self.asset_url("hidden.svg"), class = "unlisted", alt = "unlisted directory", title = "unlisted directory");
+                    }
+                }
+                @ if let Some(expires) = self.expires {
+                    div(class = "expiry") {
+                        : "Expires: ";
+                        : FormatedIsoTimestamp(expires.with_timezone(self.display_timezone))
                     }
                 }
             }

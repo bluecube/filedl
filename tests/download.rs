@@ -3,7 +3,6 @@ use common::{make_test_png, test_app};
 
 use actix_web::{http::header, test};
 use filedl::{app_data::AppData, build_app, config::Config};
-use std::sync::Arc;
 
 #[actix_web::test]
 async fn root_returns_200() {
@@ -84,8 +83,8 @@ async fn linked_object_is_accessible() {
         r#"{"mylink":{"ownership":{"Linked":"linked_file.txt"}}}"#,
     )
     .unwrap();
-    let app_data = Arc::new(
-        AppData::with_config(Config {
+    let app_data = AppData::with_config(
+        Config {
             bind_address: "localhost".into(),
             bind_port: 8080,
             data_path: dir.path().to_owned(),
@@ -95,9 +94,10 @@ async fn linked_object_is_accessible() {
             app_name: "Test".into(),
             display_timezone: chrono_tz::UTC,
             thumbnail_cache_size: 1024 * 1024,
-        })
-        .unwrap(),
-    );
+        },
+        true,
+    )
+    .unwrap();
     let app = test::init_service(build_app!(app_data)).await;
 
     let req = test::TestRequest::get()
@@ -120,8 +120,8 @@ async fn unlisted_objects_not_shown_in_listing() {
         r#"{"publicfile":{"ownership":"Owned"},"hiddenfile":{"ownership":"Owned","unlisted_key":"secret"}}"#,
     )
     .unwrap();
-    let app_data = Arc::new(
-        AppData::with_config(Config {
+    let app_data = AppData::with_config(
+        Config {
             bind_address: "localhost".into(),
             bind_port: 8080,
             data_path: dir.path().to_owned(),
@@ -131,9 +131,10 @@ async fn unlisted_objects_not_shown_in_listing() {
             app_name: "Test".into(),
             display_timezone: chrono_tz::UTC,
             thumbnail_cache_size: 1024 * 1024,
-        })
-        .unwrap(),
-    );
+        },
+        true,
+    )
+    .unwrap();
     let app = test::init_service(build_app!(app_data)).await;
 
     let req = test::TestRequest::get().uri("/download").to_request();
@@ -179,8 +180,8 @@ async fn directory_listing_json_mode() {
         r#"{"mydir":{"ownership":{"Linked":"mydir"}}}"#,
     )
     .unwrap();
-    let app_data = Arc::new(
-        AppData::with_config(Config {
+    let app_data = AppData::with_config(
+        Config {
             bind_address: "localhost".into(),
             bind_port: 8080,
             data_path: dir.path().to_owned(),
@@ -190,9 +191,10 @@ async fn directory_listing_json_mode() {
             app_name: "Test".into(),
             display_timezone: chrono_tz::UTC,
             thumbnail_cache_size: 1024 * 1024,
-        })
-        .unwrap(),
-    );
+        },
+        true,
+    )
+    .unwrap();
     let app = test::init_service(build_app!(app_data)).await;
 
     let req = test::TestRequest::get()
@@ -384,8 +386,8 @@ async fn unlisted_object_requires_key() {
         r#"{"secretfile":{"ownership":"Owned","unlisted_key":"mykey"}}"#,
     )
     .unwrap();
-    let app_data = Arc::new(
-        AppData::with_config(Config {
+    let app_data = AppData::with_config(
+        Config {
             bind_address: "localhost".into(),
             bind_port: 8080,
             data_path: dir.path().to_owned(),
@@ -395,9 +397,10 @@ async fn unlisted_object_requires_key() {
             app_name: "Test".into(),
             display_timezone: chrono_tz::UTC,
             thumbnail_cache_size: 1024 * 1024,
-        })
-        .unwrap(),
-    );
+        },
+        true,
+    )
+    .unwrap();
     let app = test::init_service(build_app!(app_data)).await;
 
     let req = test::TestRequest::get()

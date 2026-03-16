@@ -61,6 +61,10 @@ async fn rest_create_object(
             .await?;
     }
 
+    if expires.is_some() {
+        app.signal_expiry_change();
+    }
+
     #[derive(serde::Serialize)]
     struct CreateResult {
         download_url: String,
@@ -89,6 +93,8 @@ async fn rest_patch_object(
     let mut obj = app.get_object_mut(&object_id).await?;
     obj.unlisted_key = body.unlisted_key;
     obj.expires = body.expires;
+    drop(obj);
+    app.signal_expiry_change();
     Ok(HttpResponse::Ok().finish())
 }
 

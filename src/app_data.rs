@@ -17,12 +17,13 @@ use std::{
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
     sync::Arc,
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 use tokio::{
     fs,
     io::AsyncWriteExt,
-    sync::{RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard},
+    sync::{RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard, watch},
+    time::timeout,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -40,12 +41,23 @@ pub struct Object {
     pub unlisted_key: Option<Arc<str>>,
 }
 
+impl Object {
+    pub fn is_expired(&self) -> bool {
+        self.is_expired_at(Utc::now())
+    }
+
+    pub fn is_expired_at(&self, at: DateTime<Utc>) -> bool {
+        self.expires.is_some_and(|exp| exp <= at)
+    }
+}
+
 #[derive(Debug)]
 pub struct ResolvedObject<'a> {
     object_path: String,
     storage_path: PathBuf,
     metadata: Metadata,
     thumbnails: &'a CachedThumbnails,
+    expires: Option<DateTime<Utc>>,
 }
 
 impl<'a> ResolvedObject<'a> {
@@ -53,6 +65,7 @@ impl<'a> ResolvedObject<'a> {
         object_path: String,
         storage_path: PathBuf,
         thumbnails: &'a CachedThumbnails,
+        expires: Option<DateTime<Utc>>,
     ) -> Result<Self> {
         let metadata = fs::metadata(&storage_path).await?;
 
@@ -61,6 +74,7 @@ impl<'a> ResolvedObject<'a> {
             storage_path,
             metadata,
             thumbnails,
+            expires,
         })
     }
 
@@ -85,6 +99,10 @@ impl<'a> ResolvedObject<'a> {
 
     pub fn item_type(&self) -> ItemType {
         ItemType::new(&self.metadata)
+    }
+
+    pub fn get_expires(&self) -> Option<DateTime<Utc>> {
+        self.expires
     }
 
     pub async fn into_thumbnail(
@@ -188,6 +206,8 @@ pub struct DirListingItem {
     pub file_size: u64,
     pub modified: Option<DateTime<Utc>>,
     pub source_hash: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires: Option<DateTime<Utc>>,
 }
 
 impl DirListingItem {
@@ -212,12 +232,19 @@ impl DirListingItem {
             file_size: metadata.len(),
             modified: metadata.modified().ok().map(Into::into),
             source_hash: get_source_hash(path, metadata),
+            expires: None,
         }
     }
 }
 
 pub fn generate_unlisted_key() -> Arc<str> {
     format!("{:032x}", rand::rng().random::<u128>()).into()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AppDataSignal {
+    Rescan,
+    Quit,
 }
 
 pub struct AppData {
@@ -228,10 +255,15 @@ pub struct AppData {
     static_content_hash: String,
     download_base_url: String,
     admin_objects_base_url: String,
+    signal_tx: watch::Sender<AppDataSignal>,
+    background_tasks: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 impl AppData {
-    pub fn with_config(config: Config) -> std::result::Result<Self, StartupError> {
+    pub fn with_config(
+        config: Config,
+        spawn_background_tasks: bool,
+    ) -> std::result::Result<Arc<Self>, StartupError> {
         let path = config.data_path.join("metadata.json");
         let objects = RwLock::new(Storage::new(path)?);
         let thumbnail_cache_size = config.thumbnail_cache_size;
@@ -244,6 +276,8 @@ impl AppData {
             format!("{}", url_encode(&config.admin_url)).trim_end_matches('/')
         );
 
+        let (signal_tx, _) = watch::channel(AppDataSignal::Rescan);
+
         let data = AppData {
             config,
             objects,
@@ -251,13 +285,35 @@ impl AppData {
             static_content_hash,
             download_base_url,
             admin_objects_base_url,
+            signal_tx,
+            background_tasks: std::sync::Mutex::new(Vec::new()),
         };
 
         // Remove the upload temp area from possible previous failed uploads
         // Ignoring errors
         let _ = std::fs::remove_dir_all(data.get_upload_temp_path());
 
-        Ok(data)
+        let app = Arc::new(data);
+
+        if spawn_background_tasks {
+            let mut tasks = app.background_tasks.lock().unwrap();
+            {
+                let app = Arc::clone(&app);
+                let signal_rx = app.signal_tx.subscribe();
+                tasks.push(tokio::spawn(
+                    async move { app.expiry_task(signal_rx).await },
+                ));
+            }
+            {
+                let app = Arc::clone(&app);
+                let signal_rx = app.signal_tx.subscribe();
+                tasks.push(tokio::spawn(async move {
+                    app.storage_dump_task(signal_rx).await
+                }));
+            }
+        }
+
+        Ok(app)
     }
 
     pub fn get_download_base_url(&self) -> &str {
@@ -332,15 +388,21 @@ impl AppData {
             });
         }
 
-        // TODO: Handle expiry?
+        if obj.is_expired() {
+            log::info!("Ignoring expired object {}", object_id);
+            return Err(FiledlError::Expired {
+                object_id: object_id.to_owned(),
+            });
+        }
 
+        let expires = obj.expires;
         let mut object_fs_path = self.get_object_storage_path(object_id, &obj);
         if let Some(subobject_path) = subobject_path {
             object_fs_path.push(subobject_path);
         }
         drop(obj);
 
-        let result = ResolvedObject::new(path, object_fs_path, &self.thumbnails).await?;
+        let result = ResolvedObject::new(path, object_fs_path, &self.thumbnails, expires).await?;
         Ok(result)
     }
 
@@ -368,9 +430,7 @@ impl AppData {
 
         if matches!(obj.ownership, ObjectOwnership::Owned) {
             let path = self.get_owned_object_storage_path(object_id);
-            // Best-effort: ignore errors (file may already be gone)
-            let _ = tokio::fs::remove_file(&path).await;
-            let _ = tokio::fs::remove_dir_all(&path).await;
+            remove_file_or_directory(&path).await?;
         }
         Ok(())
     }
@@ -409,15 +469,18 @@ impl AppData {
         let mut result = Vec::new();
 
         for (key, obj) in self.objects.read().await.iter() {
+            if obj.unlisted_key.is_some() {
+                continue;
+            }
+            if obj.is_expired() {
+                log::info!("Ignoring expired object {} in listing", key);
+                continue;
+            }
             let path = self.get_object_storage_path(key, obj);
             let metadata = fs::metadata(&path).await?;
-            if obj.unlisted_key.is_none() {
-                result.push(DirListingItem::with_metadata(
-                    &path,
-                    Arc::clone(key),
-                    &metadata,
-                ));
-            }
+            let mut item = DirListingItem::with_metadata(&path, Arc::clone(key), &metadata);
+            item.expires = obj.expires;
+            result.push(item);
         }
 
         Ok(result)
@@ -433,7 +496,152 @@ impl AppData {
         .map_err(|_| FiledlError::ObjectNotFound)
     }
 
-    /// Creates an owned object that contains just a single file with the given content.
+    pub fn signal_expiry_change(&self) {
+        let _ = self.signal_tx.send(AppDataSignal::Rescan);
+    }
+
+    pub async fn shutdown(&self) -> std::io::Result<()> {
+        let _ = self.signal_tx.send(AppDataSignal::Quit);
+
+        let tasks = std::mem::take(&mut *self.background_tasks.lock().unwrap());
+        for task in tasks {
+            let _ = task.await;
+        }
+
+        let mut objects = self.objects.write().await;
+        if objects.is_dirty() {
+            objects.dump()?;
+        }
+
+        Ok(())
+    }
+
+    /// Goes through all objects in the storage and removes any expired entries,
+    /// including deleting the files for owned expired entries.
+    /// Errors during file and directory deletion are logged, but ignored.
+    async fn delete_expired_and_get_next(&self) -> Option<DateTime<Utc>> {
+        let mut objects = self.objects.write().await;
+        let mut next_expiry: Option<DateTime<Utc>> = None;
+        let mut owned_to_delete: Vec<PathBuf> = Vec::new();
+        let now = Utc::now();
+
+        objects.retain(|id, object| {
+            if object.is_expired_at(now) {
+                log::info!("Deleting expired object {id}");
+
+                if matches!(object.ownership, ObjectOwnership::Owned) {
+                    owned_to_delete.push(self.get_owned_object_storage_path(id));
+                }
+
+                false
+            } else {
+                next_expiry = match (next_expiry, object.expires) {
+                    (Some(e1), Some(e2)) => Some(e1.min(e2)),
+                    (Some(e1), None) => Some(e1),
+                    (None, Some(e2)) => Some(e2),
+                    (None, None) => None,
+                };
+
+                true
+            }
+        });
+
+        // We don't drop the lock now, because it is used to protect the files as well as the metadata
+
+        for path in owned_to_delete {
+            if let Err(e) = remove_file_or_directory(&path).await {
+                log::error!("Ignoring error while removing {}: {}", path.display(), e);
+            }
+        }
+
+        next_expiry
+    }
+
+    async fn expiry_task(&self, mut signal_rx: watch::Receiver<AppDataSignal>) {
+        log::info!("Starting expiry task");
+        loop {
+            let timeout_duration = match self.delete_expired_and_get_next().await {
+                Some(next_expiry) => (next_expiry - Utc::now())
+                    .to_std()
+                    .unwrap_or(Duration::ZERO),
+                None => Duration::MAX, // It's easier to just wait a long time, the theoretical extra wakeup will not hurt anything.
+            };
+
+            match timeout(timeout_duration, signal_rx.changed()).await {
+                Ok(Ok(())) => {
+                    // Received a command without timeout
+                    let command = *signal_rx.borrow_and_update();
+                    match command {
+                        AppDataSignal::Rescan => (),  // Just let the loop spin
+                        AppDataSignal::Quit => break, // Quit the task
+                    }
+                }
+                Ok(Err(_)) => {
+                    // The watch channel reports an error
+                    break;
+                }
+                Err(_) => {
+                    // Timed out.
+                    // This means that either an entry should be expiring by now, or that we're
+                    // rescanning in the "just in case" situation.
+                    // Nothing to do.
+                }
+            }
+        }
+        log::info!("Finished expiry task");
+    }
+
+    async fn storage_dump_task(&self, mut signal_rx: watch::Receiver<AppDataSignal>) {
+        log::info!("Starting storage dump task");
+        loop {
+            if !self.objects.read().await.is_dirty() {
+                // Wait for an event first:
+                match signal_rx.changed().await {
+                    Ok(()) => {
+                        let command = *signal_rx.borrow_and_update();
+                        match command {
+                            AppDataSignal::Rescan => (),
+                            AppDataSignal::Quit => break,
+                        }
+                    }
+                    Err(_) => break,
+                }
+
+                if !self.objects.read().await.is_dirty() {
+                    // If we were woken up and the storage is not dirty, just continue to next iteration
+                    continue;
+                }
+            }
+
+            // Actually dumping the storage:
+            let dump_result = self.objects.write().await.dump();
+            if let Err(e) = dump_result {
+                log::error!("Ignoring error while periodically dumping storage: {}", e);
+            }
+
+            // Wait for the cooldown interval before dumping the storage next time
+            match timeout(
+                Duration::from_secs(60),
+                signal_rx.wait_for(|command| matches!(command, AppDataSignal::Quit)),
+            )
+            .await
+            {
+                Ok(Ok(_quit)) => {
+                    // Received a quit without timeout
+                    break;
+                }
+                Ok(Err(_)) => {
+                    // The watch channel reports an error
+                    break;
+                }
+                Err(_) => {
+                    // Timed out -- the cooldown has ended, let's continue normally
+                }
+            }
+        }
+        log::info!("Finished storage dump task");
+    }
+
     pub async fn upload_simple_object<S, E>(
         &self,
         object_id: Arc<str>,
@@ -491,5 +699,191 @@ impl AppData {
         .await?; // TODO: What happens if this fails?
 
         Ok(())
+    }
+}
+
+async fn remove_file_or_directory(path: &Path) -> std::io::Result<()> {
+    let metadata = fs::symlink_metadata(path).await?;
+    if metadata.is_dir() {
+        fs::remove_dir_all(path).await
+    } else {
+        fs::remove_file(path).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    mod expiry {
+        use super::super::*;
+        use chrono::Duration;
+
+        fn make_object(expires: Option<DateTime<Utc>>) -> Object {
+            Object {
+                ownership: ObjectOwnership::Owned,
+                expires,
+                unlisted_key: None,
+            }
+        }
+
+        #[test]
+        fn is_expired_when_past() {
+            let obj = make_object(Some(Utc::now() - Duration::hours(1)));
+            assert!(obj.is_expired());
+        }
+
+        #[test]
+        fn is_not_expired_when_future() {
+            let obj = make_object(Some(Utc::now() + Duration::hours(1)));
+            assert!(!obj.is_expired());
+        }
+
+        #[test]
+        fn is_not_expired_when_none() {
+            let obj = make_object(None);
+            assert!(!obj.is_expired());
+        }
+
+        /// Creates an AppData with a test config in a temp directory, without
+        /// background tasks so tests can call internal methods without racing
+        /// the expiry or dump loops.
+        fn test_app() -> (tempfile::TempDir, Arc<AppData>) {
+            let dir = tempfile::tempdir().unwrap();
+            let config = Config {
+                bind_address: "localhost".into(),
+                bind_port: 0,
+                data_path: dir.path().to_path_buf(),
+                linked_objects_root: dir.path().to_path_buf(),
+                download_url: "/download".into(),
+                admin_url: "/admin".into(),
+                app_name: "test".into(),
+                display_timezone: chrono_tz::UTC,
+                thumbnail_cache_size: 1024,
+            };
+            let app = AppData::with_config(config, false).unwrap();
+            (dir, app)
+        }
+
+        #[tokio::test]
+        async fn delete_expired_removes_expired_object() {
+            let (_dir, app) = test_app();
+
+            let past = Utc::now() - Duration::hours(1);
+            let future = Utc::now() + Duration::hours(1);
+
+            {
+                let mut guard = app.objects.write().await;
+                guard.create("expired_obj".into(), make_object(Some(past)));
+                guard.create("future_obj".into(), make_object(Some(future)));
+            }
+
+            let next = app.delete_expired_and_get_next().await;
+
+            // The expired object should be removed
+            assert!(app.objects.read().await.get("expired_obj").is_none());
+            // The future object should still exist
+            assert!(app.objects.read().await.get("future_obj").is_some());
+            // Next expiry should be approximately the future time
+            assert!(next.is_some());
+            let next = next.unwrap();
+            assert!((next - future).num_seconds().abs() < 2);
+        }
+
+        #[tokio::test]
+        async fn resolve_expired_object_returns_error() {
+            let (dir, app) = test_app();
+            // Create a file so the linked path resolves
+            std::fs::write(dir.path().join("testfile"), b"hello").unwrap();
+
+            let past = Utc::now() - Duration::hours(1);
+            {
+                let mut guard = app.objects.write().await;
+                guard.create(
+                    "expired_link".into(),
+                    Object {
+                        ownership: ObjectOwnership::Linked("testfile".into()),
+                        expires: Some(past),
+                        unlisted_key: None,
+                    },
+                );
+            }
+
+            let result = app.resolve_object("expired_link".to_owned(), None).await;
+            assert!(result.is_err());
+            assert!(
+                matches!(result.unwrap_err(), FiledlError::Expired { object_id } if object_id == "expired_link")
+            );
+        }
+
+        #[tokio::test]
+        async fn delete_expired_cleans_up_owned_files() {
+            let (dir, app) = test_app();
+
+            let owned_data = dir.path().join("owned_data");
+            std::fs::create_dir_all(&owned_data).unwrap();
+            let expired_file = owned_data.join("expired_obj");
+            let future_file = owned_data.join("future_obj");
+            std::fs::write(&expired_file, b"expired").unwrap();
+            std::fs::write(&future_file, b"future").unwrap();
+
+            let past = Utc::now() - Duration::hours(1);
+            let future = Utc::now() + Duration::hours(1);
+
+            {
+                let mut guard = app.objects.write().await;
+                guard.create("expired_obj".into(), make_object(Some(past)));
+                guard.create("future_obj".into(), make_object(Some(future)));
+            }
+
+            app.delete_expired_and_get_next().await;
+
+            assert!(!expired_file.exists());
+            assert!(future_file.exists());
+        }
+
+        #[tokio::test]
+        async fn delete_expired_does_not_dirty_when_nothing_expired() {
+            let (_dir, app) = test_app();
+
+            let future = Utc::now() + Duration::hours(1);
+            {
+                let mut guard = app.objects.write().await;
+                guard.create("future_obj".into(), make_object(Some(future)));
+                guard.dump().unwrap();
+            }
+
+            assert!(!app.objects.read().await.is_dirty());
+            app.delete_expired_and_get_next().await;
+            assert!(!app.objects.read().await.is_dirty());
+        }
+
+        #[tokio::test]
+        async fn shutdown_dumps_dirty_storage() {
+            let (dir, app) = test_app();
+
+            {
+                let mut guard = app.objects.write().await;
+                guard.create("obj".into(), make_object(None));
+            }
+            assert!(app.objects.read().await.is_dirty());
+
+            app.shutdown().await.unwrap();
+
+            // Verify the data was persisted to disk
+            let contents = std::fs::read_to_string(dir.path().join("metadata.json")).unwrap();
+            assert!(contents.contains("obj"));
+        }
+
+        #[tokio::test]
+        async fn shutdown_skips_dump_when_clean() {
+            let (dir, app) = test_app();
+
+            // Storage is clean (no mutations)
+            assert!(!app.objects.read().await.is_dirty());
+
+            app.shutdown().await.unwrap();
+
+            // metadata.json should not exist (never written since storage was empty and clean)
+            assert!(!dir.path().join("metadata.json").exists());
+        }
     }
 }

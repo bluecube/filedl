@@ -2,8 +2,8 @@ mod common;
 use common::test_app;
 
 use actix_web::test;
+use chrono::Utc;
 use filedl::{app_data::AppData, build_app, config::Config};
-use std::sync::Arc;
 
 #[actix_web::test]
 async fn duplicate_upload_is_rejected() {
@@ -344,4 +344,40 @@ async fn admin_link_with_slash_prefixed_path() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     assert_eq!(test::read_body(resp).await.as_ref(), b"content");
+}
+
+#[actix_web::test]
+async fn expired_object_is_deleted() {
+    let (_dir, app) = test_app!();
+
+    // Create object with expiry already in the past — the background task will pick it up
+    // immediately when signalled.
+    let expires = (Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
+    let uri = format!(
+        "/admin/objects/ephemeral?expires={}",
+        percent_encoding::utf8_percent_encode(&expires, percent_encoding::NON_ALPHANUMERIC)
+    );
+    let req = test::TestRequest::put()
+        .uri(&uri)
+        .set_payload("temp content")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status().is_success());
+
+    // Give the background expiry task a moment to process the signal
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Object should be gone
+    let req = test::TestRequest::get()
+        .uri("/download/ephemeral")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+
+    // Admin listing should not contain it
+    let req = test::TestRequest::get().uri("/admin").to_request();
+    let resp = test::call_service(&app, req).await;
+    let body = test::read_body(resp).await;
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(!html.contains("ephemeral"));
 }

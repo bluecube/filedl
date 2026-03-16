@@ -166,6 +166,12 @@ impl<'a> AdminListing<'a> {
                         @ if let Some(modified) = item.modified {
                             : FormatedIsoTimestamp(modified.with_timezone(self.display_timezone));
                         }
+                        @ if let Some(expires) = info.expires {
+                            span(class = "expiry") {
+                                : "Expires: ";
+                                : FormatedIsoTimestamp(expires.with_timezone(self.display_timezone));
+                            }
+                        }
                     }
                     div(class = "details-inner") {
                         button(

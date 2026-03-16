@@ -75,6 +75,7 @@ impl ResponseError for FiledlError {
         // TODO: Clean this up!
         match self {
             FiledlError::ObjectNotFound => StatusCode::NOT_FOUND,
+            FiledlError::Expired { .. } => StatusCode::NOT_FOUND,
             FiledlError::Unlisted { path: _, key: _ } => StatusCode::NOT_FOUND,
             FiledlError::BadDownloadMode => StatusCode::NOT_FOUND,
             FiledlError::ObjectExists { .. } => StatusCode::CONFLICT,
@@ -130,7 +131,7 @@ async fn download_root(
     match query.mode {
         DownloadMode::Default => Ok(HttpResponse::Ok()
             .content_type(mime::TEXT_HTML_UTF_8)
-            .body(templates::DirListing::new_wrapped(&app, "", None, items).into_string()?)),
+            .body(templates::DirListing::new_wrapped(&app, "", None, None, items).into_string()?)),
         DownloadMode::Json => Ok(HttpResponse::Ok().json(items)),
         _ => Err(FiledlError::BadDownloadMode),
     }
@@ -159,6 +160,7 @@ async fn download_object(
                         &app,
                         resolved_object.object_path(),
                         query.key.as_deref(),
+                        resolved_object.get_expires(),
                         items,
                     )
                     .await?
@@ -277,13 +279,15 @@ async fn dir_listing(
     app: &AppData,
     object_path: &str,
     query_key: Option<&str>,
+    expires: Option<chrono::DateTime<chrono::Utc>>,
     items: Vec<DirListingItem>,
 ) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok()
         .content_type(mime::TEXT_HTML_UTF_8)
         .insert_header(cache_control(None))
         .body(
-            templates::DirListing::new_wrapped(app, object_path, query_key, items).into_string()?,
+            templates::DirListing::new_wrapped(app, object_path, query_key, expires, items)
+                .into_string()?,
         ))
 }
 

@@ -6,8 +6,8 @@ macro_rules! test_app {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("owned_data")).unwrap();
         std::fs::write(dir.path().join("metadata.json"), $metadata).unwrap();
-        let app_data = Arc::new(
-            AppData::with_config(Config {
+        let app_data = AppData::with_config(
+            Config {
                 bind_address: "localhost".into(),
                 bind_port: 8080,
                 data_path: dir.path().to_owned(),
@@ -17,9 +17,10 @@ macro_rules! test_app {
                 app_name: "Test".into(),
                 display_timezone: chrono_tz::UTC,
                 thumbnail_cache_size: 1024 * 1024,
-            })
-            .unwrap(),
-        );
+            },
+            true,
+        )
+        .unwrap();
         let app = actix_web::test::init_service(build_app!(app_data)).await;
         (dir, app)
     }};

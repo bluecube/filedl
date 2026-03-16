@@ -6,6 +6,8 @@ pub type Result<T> = std::result::Result<T, FiledlError>;
 pub enum FiledlError {
     #[error("Object not found")]
     ObjectNotFound,
+    #[error("Object {object_id} has expired")]
+    Expired { object_id: String },
     #[error("Object {object_id} already exists")]
     ObjectExists { object_id: Arc<str> },
     #[error("Unlisted object {path} accessed with wrong key {key:?}")]
