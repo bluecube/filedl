@@ -153,9 +153,15 @@ async function editDelete() {
 }
 
 function randomKey() {
-    const buf = new Uint8Array(4);
+    const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789-._~';
+    const buf = new Uint8Array(8);
     crypto.getRandomValues(buf);
-    return Array.from(buf, b => b.toString(16).padStart(2, '0')).join('');
+    const key = Array.from(buf.subarray(0, -1), b => alphabet[b % alphabet.length]);
+
+    // Last character is alphanumeric only to make it more harder to miss when
+    // copying URL with a key
+    key.push(alphabet[buf[buf.length - 1] % (alphabet.length - 4)]);
+    return key.join('');
 }
 
 // --- form-section wiring (all sections on the page) ---
