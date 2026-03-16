@@ -381,3 +381,66 @@ async fn expired_object_is_deleted() {
     let html = std::str::from_utf8(&body).unwrap();
     assert!(!html.contains("ephemeral"));
 }
+
+#[actix_web::test]
+async fn browse_linked_returns_entries() {
+    let (dir, app) = test_app!();
+    std::fs::write(dir.path().join("hello.txt"), "hi").unwrap();
+    std::fs::create_dir(dir.path().join("mydir")).unwrap();
+
+    let req = test::TestRequest::get()
+        .uri("/admin/browse_linked?path=")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body: Vec<serde_json::Value> = test::read_body_json(resp).await;
+    let names: Vec<&str> = body.iter().map(|e| e["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"hello.txt"));
+    assert!(names.contains(&"mydir"));
+}
+
+#[actix_web::test]
+async fn browse_linked_rejects_traversal() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::get()
+        .uri("/admin/browse_linked?path=..")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+
+    let req = test::TestRequest::get()
+        .uri("/admin/browse_linked?path=foo/../..")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+}
+
+#[actix_web::test]
+async fn browse_linked_subdirectory() {
+    let (dir, app) = test_app!();
+    std::fs::create_dir(dir.path().join("sub")).unwrap();
+    std::fs::write(dir.path().join("sub").join("inner.txt"), "").unwrap();
+
+    let req = test::TestRequest::get()
+        .uri("/admin/browse_linked?path=sub")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body: Vec<serde_json::Value> = test::read_body_json(resp).await;
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["name"], "inner.txt");
+}
+
+#[actix_web::test]
+async fn browse_linked_nonexistent_returns_error() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::get()
+        .uri("/admin/browse_linked?path=no_such_dir")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(!resp.status().is_success());
+}

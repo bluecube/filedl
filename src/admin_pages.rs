@@ -19,6 +19,21 @@ struct AdminCreateQuery {
     expires: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct BrowseLinkedQuery {
+    #[serde(default)]
+    path: String,
+}
+
+#[get("/browse_linked")]
+async fn browse_linked(
+    app: web::Data<Arc<AppData>>,
+    query: web::Query<BrowseLinkedQuery>,
+) -> Result<HttpResponse> {
+    let entries = app.browse_linked_directory(&query.path).await?;
+    Ok(HttpResponse::Ok().json(entries))
+}
+
 /// Admin dashboard — lists all objects including unlisted ones
 #[get("")]
 async fn admin_dashboard(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
@@ -119,6 +134,7 @@ async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
 /// Configure all admin routes
 pub fn configure_admin_pages(cfg: &mut web::ServiceConfig) {
     cfg.service(admin_dashboard)
+        .service(browse_linked)
         .service(
             web::scope("/objects")
                 .configure(crate::pages::configure_pages)

@@ -231,10 +231,10 @@ impl RenderOnce for AdminListing<'_> {
                         input(type = "file", name = "file");
                     }
 
-                    div {
+                    div(class = "path-picker") {
                         input(type = "radio", name = "mode", id="mode-link", value = "link");
                         label(for = "mode-link"): "Link";
-                        input(type = "text", name = "path", placeholder = "Path to file");
+                        input(type = "text", name = "path", placeholder = "Path to file", autocomplete = "off");
                     }
 
                     div(class = "form-section") {

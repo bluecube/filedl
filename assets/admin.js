@@ -226,6 +226,141 @@ pathInput.addEventListener('focus', () => {
     setMode('link');
 });
 
+// --- path autocomplete ---
+
+let autocompleteCache = {};
+let autocompleteTimeout = null;
+let highlightedIndex = -1;
+
+function getPathDir(path) {
+    const i = path.lastIndexOf('/');
+    return i < 0 ? '' : path.substring(0, i);
+}
+
+function getPathBasename(path) {
+    const i = path.lastIndexOf('/');
+    return i < 0 ? path : path.substring(i + 1);
+}
+
+async function fetchBrowseLinkedEntries(dir) {
+    if (dir in autocompleteCache)
+        return autocompleteCache[dir];
+    try {
+        const resp = await fetch('browse_linked?path=' + encodeURIComponent(dir));
+        if (!resp.ok)
+            return null;
+        const entries = await resp.json();
+        autocompleteCache[dir] = entries;
+        return entries;
+    } catch {
+        return null;
+    }
+}
+
+function removeAutocomplete() {
+    const existing = document.querySelector('.autocomplete-dropdown');
+    if (existing)
+        existing.remove();
+    highlightedIndex = -1;
+}
+
+function showAutocomplete(entries, dir) {
+    removeAutocomplete();
+    if (entries.length === 0)
+        return;
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'autocomplete-dropdown';
+
+    entries.forEach((entry, i) => {
+        const item = document.createElement('div');
+        item.className = 'autocomplete-item';
+        item.textContent = entry.name + (entry.is_dir ? '/' : '');
+        item.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            selectAutocompleteEntry(dir, entry);
+        });
+        dropdown.appendChild(item);
+    });
+
+    pathInput.closest('.path-picker').appendChild(dropdown);
+}
+
+function selectAutocompleteEntry(dir, entry) {
+    const prefix = dir ? dir + '/' : '';
+    if (entry.is_dir) {
+        pathInput.value = prefix + entry.name + '/';
+        triggerAutocomplete();
+    } else {
+        pathInput.value = prefix + entry.name;
+        removeAutocomplete();
+    }
+}
+
+function updateHighlight() {
+    const items = document.querySelectorAll('.autocomplete-item');
+    items.forEach((item, i) => {
+        item.classList.toggle('highlighted', i === highlightedIndex);
+    });
+    if (highlightedIndex >= 0 && highlightedIndex < items.length) {
+        items[highlightedIndex].scrollIntoView({ block: 'nearest' });
+    }
+}
+
+async function triggerAutocomplete() {
+    const dir = getPathDir(pathInput.value);
+    const prefix = getPathBasename(pathInput.value);
+    const entries = await fetchBrowseLinkedEntries(dir);
+    if (!entries) {
+        removeAutocomplete();
+        return;
+    }
+
+    const filtered = prefix
+        ? entries.filter(e => e.name.toLowerCase().startsWith(prefix.toLowerCase()))
+        : entries;
+    showAutocomplete(filtered, dir);
+}
+
+pathInput.addEventListener('input', () => {
+    clearTimeout(autocompleteTimeout);
+    autocompleteTimeout = setTimeout(triggerAutocomplete, 200);
+});
+
+pathInput.addEventListener('keydown', (e) => {
+    const items = document.querySelectorAll('.autocomplete-item');
+    if (items.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        highlightedIndex = Math.min(highlightedIndex + 1, items.length - 1);
+        updateHighlight();
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        highlightedIndex = Math.max(highlightedIndex - 1, 0);
+        updateHighlight();
+    } else if ((e.key === 'Enter' && highlightedIndex >= 0) || e.key === 'Tab') {
+        const dir = getPathDir(pathInput.value);
+        const dropdown = document.querySelector('.autocomplete-dropdown');
+        if (!dropdown) return;
+        const entries = autocompleteCache[dir];
+        if (!entries) return;
+        const prefix = getPathBasename(pathInput.value);
+        const filtered = prefix
+            ? entries.filter(en => en.name.toLowerCase().startsWith(prefix.toLowerCase()))
+            : entries;
+        const idx = highlightedIndex >= 0 ? highlightedIndex : 0;
+        if (idx < filtered.length) {
+            e.preventDefault();
+            selectAutocompleteEntry(dir, filtered[idx]);
+        }
+    } else if (e.key === 'Escape') {
+        removeAutocomplete();
+    }
+});
+
+pathInput.addEventListener('blur', () => setTimeout(removeAutocomplete, 150));
+
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const id = overrideCheckbox.checked ? idInput.value : derivedId();

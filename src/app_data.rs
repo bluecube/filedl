@@ -237,6 +237,45 @@ impl DirListingItem {
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct BrowseLinkedEntry {
+    pub name: String,
+    pub is_dir: bool,
+}
+
+impl AppData {
+    pub async fn browse_linked_directory(&self, path: &str) -> Result<Vec<BrowseLinkedEntry>> {
+        if path.split('/').any(|part| part == "..") {
+            return Err(FiledlError::DirectoryTraversal {
+                path: path.to_owned(),
+            });
+        }
+
+        let full_path = RelativePathBuf::from(path).to_path(&self.config.linked_objects_root);
+        let mut dir = tokio::fs::read_dir(&full_path).await?;
+        let mut entries = Vec::new();
+
+        while let Some(entry) = dir.next_entry().await? {
+            let Ok(name) = entry.file_name().into_string() else {
+                continue;
+            };
+            let file_type = entry.file_type().await?;
+            entries.push(BrowseLinkedEntry {
+                name,
+                is_dir: file_type.is_dir(),
+            });
+        }
+
+        entries.sort_by(|a, b| {
+            b.is_dir
+                .cmp(&a.is_dir)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+
+        Ok(entries)
+    }
+}
+
 pub fn generate_unlisted_key() -> Arc<str> {
     format!("{:032x}", rand::rng().random::<u128>()).into()
 }
@@ -884,6 +923,86 @@ mod tests {
 
             // metadata.json should not exist (never written since storage was empty and clean)
             assert!(!dir.path().join("metadata.json").exists());
+        }
+    }
+
+    mod browse_linked {
+        use super::super::*;
+
+        fn test_app() -> (tempfile::TempDir, Arc<AppData>) {
+            let dir = tempfile::tempdir().unwrap();
+            let config = Config {
+                bind_address: "localhost".into(),
+                bind_port: 0,
+                data_path: dir.path().to_path_buf(),
+                linked_objects_root: dir.path().to_path_buf(),
+                download_url: "/download".into(),
+                admin_url: "/admin".into(),
+                app_name: "test".into(),
+                display_timezone: chrono_tz::UTC,
+                thumbnail_cache_size: 1024,
+            };
+            let app = AppData::with_config(config, false).unwrap();
+            (dir, app)
+        }
+
+        #[tokio::test]
+        async fn lists_files_and_directories() {
+            let (dir, app) = test_app();
+            std::fs::write(dir.path().join("file.txt"), "hello").unwrap();
+            std::fs::create_dir(dir.path().join("subdir")).unwrap();
+
+            let entries = app.browse_linked_directory("").await.unwrap();
+            let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+            assert!(names.contains(&"file.txt"));
+            assert!(names.contains(&"subdir"));
+
+            let subdir_entry = entries.iter().find(|e| e.name == "subdir").unwrap();
+            assert!(subdir_entry.is_dir);
+            let file_entry = entries.iter().find(|e| e.name == "file.txt").unwrap();
+            assert!(!file_entry.is_dir);
+        }
+
+        #[tokio::test]
+        async fn directories_sorted_first() {
+            let (dir, app) = test_app();
+            std::fs::write(dir.path().join("aaa_file"), "").unwrap();
+            std::fs::create_dir(dir.path().join("zzz_dir")).unwrap();
+
+            let entries = app.browse_linked_directory("").await.unwrap();
+            assert!(entries[0].is_dir, "directories should come first");
+        }
+
+        #[tokio::test]
+        async fn rejects_directory_traversal() {
+            let (_dir, app) = test_app();
+
+            let result = app.browse_linked_directory("..").await;
+            assert!(result.is_err());
+
+            let result = app.browse_linked_directory("foo/../..").await;
+            assert!(result.is_err());
+
+            let result = app.browse_linked_directory("../etc").await;
+            assert!(result.is_err());
+        }
+
+        #[tokio::test]
+        async fn browses_subdirectory() {
+            let (dir, app) = test_app();
+            std::fs::create_dir(dir.path().join("sub")).unwrap();
+            std::fs::write(dir.path().join("sub").join("nested.txt"), "").unwrap();
+
+            let entries = app.browse_linked_directory("sub").await.unwrap();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].name, "nested.txt");
+        }
+
+        #[tokio::test]
+        async fn nonexistent_path_returns_error() {
+            let (_dir, app) = test_app();
+            let result = app.browse_linked_directory("no_such_dir").await;
+            assert!(result.is_err());
         }
     }
 }
