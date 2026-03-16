@@ -6,7 +6,7 @@ use std::sync::Arc;
 async fn main() -> Result<(), StartupError> {
     env_logger::Builder::from_default_env()
         .filter_module("hayro_syntax", log::LevelFilter::Info)
-        .build();
+        .init();
 
     let config = Config::get()?;
     let host = config.bind_address.clone();
