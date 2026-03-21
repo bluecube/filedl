@@ -3,7 +3,24 @@ use common::test_app;
 
 use actix_web::test;
 use chrono::Utc;
-use filedl::{app_data::AppData, build_app, config::Config};
+
+#[actix_web::test]
+async fn duplicate_linked_object_returns_409() {
+    let (dir, app) = test_app!();
+    std::fs::write(dir.path().join("file.txt"), "content").unwrap();
+
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/duplink?link=file.txt")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status().is_success());
+
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/duplink?link=file.txt")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 409);
+}
 
 #[actix_web::test]
 async fn duplicate_upload_is_rejected() {

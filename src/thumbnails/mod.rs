@@ -12,8 +12,37 @@ use memchr::memmem;
 use mime::Mime;
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
 use pdf_thumbnail::create_pdf_thumbnail;
+use snafu::prelude::*;
+
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub(crate)))]
+pub enum ThumbnailError {
+    #[snafu(display("Image processing failed at {location}"))]
+    ImageError {
+        #[snafu(source(from(image::error::ImageError, Box::new)))]
+        source: Box<image::error::ImageError>,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    #[snafu(display("IO error at {location}"))]
+    IOError {
+        source: std::io::Error,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    #[snafu(display("PDF loading failed at {location}"))]
+    PdfLoadError {
+        #[snafu(source(false))]
+        source: hayro::hayro_syntax::LoadPdfError,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+}
+
+pub type ThumbnailResult<T> = std::result::Result<T, ThumbnailError>;
 
 pub use cache::{CacheStats, CachedThumbnails};
 
@@ -74,7 +103,7 @@ pub fn create_thumbnail(
     file: &Path,
     resolution: (u32, u32),
     thumbnail_type: ThumbnailType,
-) -> Result<Bytes> {
+) -> ThumbnailResult<Bytes> {
     let thumb = if is_path_pdf(file) {
         create_pdf_thumbnail(file, resolution)
     } else {
@@ -83,16 +112,20 @@ pub fn create_thumbnail(
     let mut bytes: Vec<u8> = Vec::new();
 
     if thumbnail_type.has_alpha() {
-        thumb.write_to(
-            &mut Cursor::new(&mut bytes),
-            thumbnail_type.image_output_format(),
-        )?;
+        thumb
+            .write_to(
+                &mut Cursor::new(&mut bytes),
+                thumbnail_type.image_output_format(),
+            )
+            .context(ImageSnafu)?;
     } else {
         let thumb = blend_background(thumb, BACKGROUND_COLOR);
-        thumb.write_to(
-            &mut Cursor::new(&mut bytes),
-            thumbnail_type.image_output_format(),
-        )?;
+        thumb
+            .write_to(
+                &mut Cursor::new(&mut bytes),
+                thumbnail_type.image_output_format(),
+            )
+            .context(ImageSnafu)?;
     }
     Ok(bytes.into())
 }

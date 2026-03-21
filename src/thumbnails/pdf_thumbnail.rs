@@ -5,7 +5,8 @@ use fast_image_resize::{ResizeOptions, Resizer};
 use hayro::{RenderSettings, hayro_interpret::InterpreterSettings, hayro_syntax::Pdf};
 use image::{Rgba, RgbaImage};
 
-use crate::error::{FiledlError, Result};
+use super::{IOSnafu, PdfLoadSnafu, ThumbnailResult as Result};
+use snafu::ResultExt as _;
 
 pub fn create_pdf_thumbnail(file: &Path, resolution: (u32, u32)) -> Result<RgbaImage> {
     // Calculate render resolution, targeting 512x512 render.
@@ -24,8 +25,8 @@ pub fn create_pdf_thumbnail(file: &Path, resolution: (u32, u32)) -> Result<RgbaI
 }
 
 fn create_pdf_thumbnail_inner(file: &Path, resolution: (u32, u32)) -> Result<RgbaImage> {
-    let file_data = Arc::new(read(file)?);
-    let pdf = Pdf::new(file_data).map_err(FiledlError::PdfLoadError)?;
+    let file_data = Arc::new(read(file).context(IOSnafu)?);
+    let pdf = Pdf::new(file_data).map_err(|source| PdfLoadSnafu { source }.build())?;
 
     let first_page = pdf.pages().first().unwrap(); // TODO: What to do if there are no pages?
 

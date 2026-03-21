@@ -2,12 +2,21 @@ macro_rules! test_app {
     () => {
         test_app!("{}")
     };
-    ($metadata:expr) => {{
+    ($metadata:expr) => {
+        test_app!($metadata, background)
+    };
+    ($metadata:expr, no_background) => {
+        test_app!(@inner $metadata, false)
+    };
+    ($metadata:expr, background) => {
+        test_app!(@inner $metadata, true)
+    };
+    (@inner $metadata:expr, $background:expr) => {{
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("owned_data")).unwrap();
         std::fs::write(dir.path().join("metadata.json"), $metadata).unwrap();
-        let app_data = AppData::with_config(
-            Config {
+        let app_data = filedl::app_data::AppData::with_config(
+            filedl::config::Config {
                 bind_address: "localhost".into(),
                 bind_port: 8080,
                 data_path: dir.path().to_owned(),
@@ -18,10 +27,10 @@ macro_rules! test_app {
                 display_timezone: chrono_tz::UTC,
                 thumbnail_cache_size: 1024 * 1024,
             },
-            true,
+            $background,
         )
         .unwrap();
-        let app = actix_web::test::init_service(build_app!(app_data)).await;
+        let app = actix_web::test::init_service(filedl::build_app!(app_data)).await;
         (dir, app)
     }};
 }

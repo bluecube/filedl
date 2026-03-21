@@ -1,17 +1,18 @@
 use crate::{
     config::Config,
-    error::{FiledlError, Result, StartupError},
+    error::StartupError,
     storage::Storage,
     templates::util::url_encode,
     thumbnails::{CacheStats, CachedThumbnails, ThumbnailType, is_thumbnailable},
 };
-use actix_web::web::Bytes;
+use actix_web::{http::StatusCode, web::Bytes};
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use futures::{Stream, pin_mut};
 use rand::{Rng as _, RngExt as _, rng};
 use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
+use snafu::{OptionExt as _, ResultExt as _, prelude::*};
 use std::{
     fs::Metadata,
     hash::{Hash, Hasher},
@@ -25,6 +26,87 @@ use tokio::{
     sync::{RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard, watch},
     time::timeout,
 };
+
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub(crate)))]
+pub enum AppDataError {
+    #[snafu(display("Object {object_id} not found at {location}"))]
+    ObjectNotFound {
+        object_id: String,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    #[snafu(display("Object {object_id} has expired at {location}"))]
+    Expired {
+        object_id: String,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    #[snafu(display("Object {object_id} already exists at {location}"))]
+    ObjectExists {
+        object_id: Arc<str>,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    #[snafu(display("Unlisted object {path} accessed with wrong key {key:?} at {location}"))]
+    Unlisted {
+        path: String,
+        key: Option<String>,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    #[snafu(display("Directory traversal in path {path} at {location}"))]
+    DirectoryTraversal {
+        path: String,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    #[snafu(display("IO error at {location}"))]
+    IOError {
+        source: std::io::Error,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    #[snafu(display("Thumbnail generation failed at {location}"))]
+    #[snafu(context(false))]
+    ThumbnailError {
+        source: crate::thumbnails::ThumbnailError,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    #[snafu(display("Request payload error at {location}"))]
+    PayloadError {
+        #[snafu(source(from(actix_web::error::PayloadError, Box::new)))]
+        source: Box<actix_web::error::PayloadError>,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+}
+
+impl AppDataError {
+    pub fn status_code(&self) -> StatusCode {
+        match self {
+            Self::ObjectNotFound { .. } | Self::Expired { .. } | Self::Unlisted { .. } => {
+                StatusCode::NOT_FOUND
+            }
+            Self::ObjectExists { .. } => StatusCode::CONFLICT,
+            Self::DirectoryTraversal { .. } => StatusCode::BAD_REQUEST,
+            Self::IOError { source, .. } if source.kind() == std::io::ErrorKind::NotFound => {
+                StatusCode::NOT_FOUND
+            }
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+pub type AppDataResult<T> = std::result::Result<T, AppDataError>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ObjectOwnership {
@@ -66,8 +148,8 @@ impl<'a> ResolvedObject<'a> {
         storage_path: PathBuf,
         thumbnails: &'a CachedThumbnails,
         expires: Option<DateTime<Utc>>,
-    ) -> Result<Self> {
-        let metadata = fs::metadata(&storage_path).await?;
+    ) -> AppDataResult<Self> {
+        let metadata = fs::metadata(&storage_path).await.context(IOSnafu)?;
 
         Ok(ResolvedObject {
             object_path,
@@ -109,23 +191,27 @@ impl<'a> ResolvedObject<'a> {
         self,
         resolution: (u32, u32),
         thumbnail_type: ThumbnailType,
-    ) -> Result<(Bytes, String)> {
-        self.thumbnails
+    ) -> AppDataResult<(Bytes, String)> {
+        Ok(self
+            .thumbnails
             .get(
                 self.storage_path,
                 &self.metadata,
                 resolution,
                 thumbnail_type,
             )
-            .await
+            .await?)
     }
 
-    pub async fn list(&self) -> Result<Vec<DirListingItem>> {
+    pub async fn list(&self) -> AppDataResult<Vec<DirListingItem>> {
         let mut result = Vec::new();
 
-        let mut dir = fs::read_dir(&self.storage_path).await?;
-        while let Some(entry) = dir.next_entry().await? {
-            if let Some(item) = DirListingItem::with_dir_entry(entry).await? {
+        let mut dir = fs::read_dir(&self.storage_path).await.context(IOSnafu)?;
+        while let Some(entry) = dir.next_entry().await.context(IOSnafu)? {
+            if let Some(item) = DirListingItem::with_dir_entry(entry)
+                .await
+                .context(IOSnafu)?
+            {
                 result.push(item);
             }
         }
@@ -244,22 +330,26 @@ pub struct BrowseLinkedEntry {
 }
 
 impl AppData {
-    pub async fn browse_linked_directory(&self, path: &str) -> Result<Vec<BrowseLinkedEntry>> {
+    pub async fn browse_linked_directory(
+        &self,
+        path: &str,
+    ) -> AppDataResult<Vec<BrowseLinkedEntry>> {
         if path.split('/').any(|part| part == "..") {
-            return Err(FiledlError::DirectoryTraversal {
+            return DirectoryTraversalSnafu {
                 path: path.to_owned(),
-            });
+            }
+            .fail();
         }
 
         let full_path = RelativePathBuf::from(path).to_path(&self.config.linked_objects_root);
-        let mut dir = tokio::fs::read_dir(&full_path).await?;
+        let mut dir = tokio::fs::read_dir(&full_path).await.context(IOSnafu)?;
         let mut entries = Vec::new();
 
-        while let Some(entry) = dir.next_entry().await? {
+        while let Some(entry) = dir.next_entry().await.context(IOSnafu)? {
             let Ok(name) = entry.file_name().into_string() else {
                 continue;
             };
-            let file_type = entry.file_type().await?;
+            let file_type = entry.file_type().await.context(IOSnafu)?;
             entries.push(BrowseLinkedEntry {
                 name,
                 is_dir: file_type.is_dir(),
@@ -402,13 +492,14 @@ impl AppData {
         &'a self,
         path: String,
         key: Option<&str>,
-    ) -> Result<ResolvedObject<'a>> {
+    ) -> AppDataResult<ResolvedObject<'a>> {
         let (object_id, subobject_path) = match path.split_once('/') {
             Some((object_id, subobject_path)) => {
                 if subobject_path.split('/').any(|part| part == "..") {
-                    return Err(FiledlError::DirectoryTraversal {
+                    return DirectoryTraversalSnafu {
                         path: path.to_owned(),
-                    });
+                    }
+                    .fail();
                 }
                 (object_id, Some(subobject_path))
             }
@@ -421,17 +512,19 @@ impl AppData {
             .as_ref()
             .is_some_and(|expected_key| key != Some(expected_key))
         {
-            return Err(FiledlError::Unlisted {
+            return UnlistedSnafu {
                 path: path.to_owned(),
                 key: key.map(|key| key.to_owned()),
-            });
+            }
+            .fail();
         }
 
         if obj.is_expired() {
             log::info!("Ignoring expired object {}", object_id);
-            return Err(FiledlError::Expired {
+            return ExpiredSnafu {
                 object_id: object_id.to_owned(),
-            });
+            }
+            .fail();
         }
 
         let expires = obj.expires;
@@ -445,12 +538,12 @@ impl AppData {
         Ok(result)
     }
 
-    pub async fn list_objects_admin(&self) -> Result<Vec<AdminObjectInfo>> {
+    pub async fn list_objects_admin(&self) -> AppDataResult<Vec<AdminObjectInfo>> {
         let mut result = Vec::new();
 
         for (key, obj) in self.objects.read().await.iter() {
             let path = self.get_object_storage_path(key, obj);
-            let metadata = fs::metadata(&path).await?;
+            let metadata = fs::metadata(&path).await.context(IOSnafu)?;
             result.push(AdminObjectInfo {
                 item: DirListingItem::with_metadata(&path, Arc::clone(key), &metadata),
                 ownership: obj.ownership.clone(),
@@ -462,14 +555,16 @@ impl AppData {
         Ok(result)
     }
 
-    pub async fn delete_object(&self, object_id: &str) -> Result<()> {
+    pub async fn delete_object(&self, object_id: &str) -> AppDataResult<()> {
         let mut guard = self.objects.write().await;
-        let obj = guard.remove(object_id).ok_or(FiledlError::ObjectNotFound)?;
+        let obj = guard
+            .remove(object_id)
+            .context(ObjectNotFoundSnafu { object_id })?;
         drop(guard);
 
         if matches!(obj.ownership, ObjectOwnership::Owned) {
             let path = self.get_owned_object_storage_path(object_id);
-            remove_file_or_directory(&path).await?;
+            remove_file_or_directory(&path).await.context(IOSnafu)?;
         }
         Ok(())
     }
@@ -480,10 +575,10 @@ impl AppData {
         link_path: RelativePathBuf,
         unlisted_key: Option<Arc<str>>,
         expires: Option<DateTime<Utc>>,
-    ) -> Result<()> {
+    ) -> AppDataResult<()> {
         // Verify the path actually exists at creation time
         let fs_path = link_path.to_path(&self.config.linked_objects_root);
-        tokio::fs::metadata(&fs_path).await?;
+        tokio::fs::metadata(&fs_path).await.context(IOSnafu)?;
 
         let mut guard = self.objects.write().await;
         if !guard.create(
@@ -494,17 +589,17 @@ impl AppData {
                 unlisted_key,
             },
         ) {
-            return Err(FiledlError::ObjectExists { object_id });
+            return ObjectExistsSnafu { object_id }.fail();
         }
         Ok(())
     }
 
-    async fn object_from_id<'a>(&'a self, id: &str) -> Result<RwLockReadGuard<'a, Object>> {
+    async fn object_from_id<'a>(&'a self, id: &str) -> AppDataResult<RwLockReadGuard<'a, Object>> {
         RwLockReadGuard::try_map(self.objects.read().await, |objects| objects.get(id))
-            .map_err(|_| FiledlError::ObjectNotFound)
+            .map_err(|_| ObjectNotFoundSnafu { object_id: id }.build())
     }
 
-    pub async fn list_objects(&self) -> Result<Vec<DirListingItem>> {
+    pub async fn list_objects(&self) -> AppDataResult<Vec<DirListingItem>> {
         let mut result = Vec::new();
 
         for (key, obj) in self.objects.read().await.iter() {
@@ -516,7 +611,7 @@ impl AppData {
                 continue;
             }
             let path = self.get_object_storage_path(key, obj);
-            let metadata = fs::metadata(&path).await?;
+            let metadata = fs::metadata(&path).await.context(IOSnafu)?;
             let mut item = DirListingItem::with_metadata(&path, Arc::clone(key), &metadata);
             item.expires = obj.expires;
             result.push(item);
@@ -528,11 +623,11 @@ impl AppData {
     pub async fn get_object_mut(
         &self,
         object_id: &str,
-    ) -> Result<RwLockMappedWriteGuard<'_, Object>> {
+    ) -> AppDataResult<RwLockMappedWriteGuard<'_, Object>> {
         RwLockWriteGuard::try_map(self.objects.write().await, |storage| {
             storage.get_mut(object_id)
         })
-        .map_err(|_| FiledlError::ObjectNotFound)
+        .map_err(|_| ObjectNotFoundSnafu { object_id }.build())
     }
 
     pub fn signal_expiry_change(&self) {
@@ -681,36 +776,36 @@ impl AppData {
         log::info!("Finished storage dump task");
     }
 
-    pub async fn upload_simple_object<S, E>(
+    pub async fn upload_simple_object(
         &self,
         object_id: Arc<str>,
-        content: S,
+        content: impl Stream<Item = std::result::Result<Bytes, actix_web::error::PayloadError>>,
         unlisted_key: Option<Arc<str>>,
         expires: Option<DateTime<Utc>>,
-    ) -> Result<()>
-    where
-        S: Stream<Item = std::result::Result<Bytes, E>>,
-        E: Into<FiledlError>,
-    {
+    ) -> AppDataResult<()> {
         use futures::StreamExt;
 
         // 1. Optimistic check of the metadata, allowing us to reject duplicate uploads early.
         if self.object_from_id(&object_id).await.is_ok() {
-            return Err(FiledlError::ObjectExists { object_id });
+            return ObjectExistsSnafu { object_id }.fail();
         }
 
         // 2. Copy the uploaded data to a temp file
         let upload_temp_path = self.get_upload_temp_path();
-        tokio::fs::create_dir_all(&upload_temp_path).await?;
-        let (f, temp_path) = tempfile::NamedTempFile::new_in(upload_temp_path)?.into_parts();
+        tokio::fs::create_dir_all(&upload_temp_path)
+            .await
+            .context(IOSnafu)?;
+        let (f, temp_path) = tempfile::NamedTempFile::new_in(upload_temp_path)
+            .context(IOSnafu)?
+            .into_parts();
         let mut f = tokio::fs::File::from_std(f);
 
         pin_mut!(content);
 
         // 3. Copy the content to file, this might take a long time
         while let Some(block) = content.next().await {
-            let block = block.map_err(|e| e.into())?;
-            f.write_all(&block).await?;
+            let block = block.context(PayloadSnafu)?;
+            f.write_all(&block).await.context(IOSnafu)?;
         }
 
         drop(f); // We're done with the file, only using the temp_path from now on
@@ -728,14 +823,15 @@ impl AppData {
                 unlisted_key,
             },
         ) {
-            return Err(FiledlError::ObjectExists { object_id });
+            return ObjectExistsSnafu { object_id }.fail();
         }
 
         tokio::fs::rename(
             temp_path.keep().unwrap(),
             self.get_owned_object_storage_path(&object_id),
         )
-        .await?; // TODO: What happens if this fails?
+        .await
+        .context(IOSnafu)?; // TODO: What happens if this fails?
 
         Ok(())
     }
@@ -849,7 +945,7 @@ mod tests {
             let result = app.resolve_object("expired_link".to_owned(), None).await;
             assert!(result.is_err());
             assert!(
-                matches!(result.unwrap_err(), FiledlError::Expired { object_id } if object_id == "expired_link")
+                matches!(result.unwrap_err(), AppDataError::Expired { object_id, .. } if object_id == "expired_link")
             );
         }
 

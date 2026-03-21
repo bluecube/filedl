@@ -1,6 +1,6 @@
 use crate::{
-    app_data::{AppData, DirListingItem, ItemType, ResolvedObject},
-    error::{FiledlError, Result},
+    app_data::{AppData, DirListingItem, ItemType, ObjectNotFoundSnafu, ResolvedObject},
+    error::{BadDownloadModeSnafu, FiledlError, IOSnafu, Result, TemplateSnafu, ZippityBuildSnafu},
     templates,
     thumbnails::ThumbnailType,
 };
@@ -16,6 +16,7 @@ use actix_web::{
 use horrorshow::Template as _;
 use memchr::memmem;
 use serde::Deserialize;
+use snafu::{OptionExt as _, ResultExt as _};
 use std::sync::Arc;
 
 pub const PROJECT_NAME: &str = env!("CARGO_PKG_NAME");
@@ -72,15 +73,10 @@ fn cache_control(cache_hash: Option<&str>) -> (&'static str, &'static str) {
 
 impl ResponseError for FiledlError {
     fn status_code(&self) -> actix_web::http::StatusCode {
-        // TODO: Clean this up!
         match self {
-            FiledlError::ObjectNotFound => StatusCode::NOT_FOUND,
-            FiledlError::Expired { .. } => StatusCode::NOT_FOUND,
-            FiledlError::Unlisted { path: _, key: _ } => StatusCode::NOT_FOUND,
-            FiledlError::BadDownloadMode => StatusCode::NOT_FOUND,
-            FiledlError::ObjectExists { .. } => StatusCode::CONFLICT,
-            FiledlError::DirectoryTraversal { .. } => StatusCode::BAD_REQUEST,
-            FiledlError::IOError { source } => match source.kind() {
+            FiledlError::AppDataError { source, .. } => source.status_code(),
+            FiledlError::BadDownloadMode { .. } => StatusCode::NOT_FOUND,
+            FiledlError::IOError { source, .. } => match source.kind() {
                 std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
                 _ => {
                     log::error!("Converting to user error: {}", source);
@@ -88,7 +84,10 @@ impl ResponseError for FiledlError {
                 }
             },
             source => {
-                log::error!("Converting to user error: {}", source);
+                let chain: Vec<_> = snafu::ErrorCompat::iter_chain(source)
+                    .map(|e| e.to_string())
+                    .collect();
+                log::error!("Internal error: {}", chain.join("\n  caused by: "));
                 StatusCode::INTERNAL_SERVER_ERROR
             }
         }
@@ -129,11 +128,13 @@ async fn download_root(
 ) -> Result<HttpResponse> {
     let items = app.list_objects().await?;
     match query.mode {
-        DownloadMode::Default => Ok(HttpResponse::Ok()
-            .content_type(mime::TEXT_HTML_UTF_8)
-            .body(templates::DirListing::new_wrapped(&app, "", None, None, items).into_string()?)),
+        DownloadMode::Default => Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(
+            templates::DirListing::new_wrapped(&app, "", None, None, items)
+                .into_string()
+                .context(TemplateSnafu)?,
+        )),
         DownloadMode::Json => Ok(HttpResponse::Ok().json(items)),
-        _ => Err(FiledlError::BadDownloadMode),
+        _ => BadDownloadModeSnafu.fail(),
     }
 }
 
@@ -171,7 +172,7 @@ async fn download_object(
                     HttpResponse::Ok().json(items)
                 }
                 DownloadMode::Assets => unreachable!("Was handled before"),
-                _ => return Err(FiledlError::BadDownloadMode),
+                _ => return BadDownloadModeSnafu.fail(),
             },
             _ => match query.mode {
                 DownloadMode::Default => file_download(resolved_object, false, &req).await?,
@@ -187,7 +188,7 @@ async fn download_object(
                     )
                     .await?
                 }
-                _ => return Err(FiledlError::BadDownloadMode),
+                _ => return BadDownloadModeSnafu.fail(),
             },
         }
     })
@@ -198,7 +199,9 @@ async fn file_download(
     force_download: bool,
     req: &HttpRequest,
 ) -> Result<HttpResponse> {
-    let mut nf = NamedFile::open_async(resolved_object.storage_path()).await?;
+    let mut nf = NamedFile::open_async(resolved_object.storage_path())
+        .await
+        .context(IOSnafu)?;
 
     if force_download {
         nf = change_named_file_content_disposition(nf, header::DispositionType::Attachment);
@@ -260,7 +263,9 @@ fn asset_download(app: &AppData, object_path: &str, req: &HttpRequest) -> Result
             )));
     }
 
-    let (content, brotli_content, ct) = assets(object_path).ok_or(FiledlError::ObjectNotFound)?;
+    let (content, brotli_content, ct) = assets(object_path).context(ObjectNotFoundSnafu {
+        object_id: object_path,
+    })?;
 
     let mut response_builder = HttpResponse::Ok();
     response_builder
@@ -287,7 +292,8 @@ async fn dir_listing(
         .insert_header(cache_control(None))
         .body(
             templates::DirListing::new_wrapped(app, object_path, query_key, expires, items)
-                .into_string()?,
+                .into_string()
+                .context(TemplateSnafu)?,
         ))
 }
 
@@ -302,13 +308,14 @@ async fn zip_download<'a>(
     let dir_name = resolved_object.object_path().rsplit('/').next().unwrap();
     let zip_file_name = format!("{}.zip", dir_name);
     let dir_name = dir_name.to_owned();
-    let dir_path = std::fs::canonicalize(resolved_object.storage_path())?;
+    let dir_path = std::fs::canonicalize(resolved_object.storage_path()).context(IOSnafu)?;
 
     let mut builder = zippity::Builder::new();
     builder.system_time_timezone(*app.get_display_timezone());
     builder
         .add_directory_recursive(dir_path, Some(&dir_name))
-        .await?;
+        .await
+        .context(ZippityBuildSnafu)?;
 
     let responder = builder.build().into_responder();
 
@@ -334,9 +341,13 @@ where
     })
 }
 
-/// Not found handler used for default route
+/// Not found handler used for default route — should be unreachable
 pub async fn default_service() -> Result<HttpResponse> {
-    Err(FiledlError::ObjectNotFound)
+    log::error!("default_service hit — this route should be unreachable");
+    ObjectNotFoundSnafu {
+        object_id: String::new(),
+    }
+    .fail()?
 }
 
 pub fn configure_pages(cfg: &mut web::ServiceConfig) {

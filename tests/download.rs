@@ -2,7 +2,6 @@ mod common;
 use common::{make_test_png, test_app};
 
 use actix_web::{http::header, test};
-use filedl::{app_data::AppData, build_app, config::Config};
 
 #[actix_web::test]
 async fn root_returns_200() {
@@ -75,30 +74,8 @@ async fn force_download_sets_attachment_disposition() {
 
 #[actix_web::test]
 async fn linked_object_is_accessible() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir(dir.path().join("owned_data")).unwrap();
+    let (dir, app) = test_app!(r#"{"mylink":{"ownership":{"Linked":"linked_file.txt"}}}"#);
     std::fs::write(dir.path().join("linked_file.txt"), "linked content").unwrap();
-    std::fs::write(
-        dir.path().join("metadata.json"),
-        r#"{"mylink":{"ownership":{"Linked":"linked_file.txt"}}}"#,
-    )
-    .unwrap();
-    let app_data = AppData::with_config(
-        Config {
-            bind_address: "localhost".into(),
-            bind_port: 8080,
-            data_path: dir.path().to_owned(),
-            linked_objects_root: dir.path().to_owned(),
-            download_url: "/download".into(),
-            admin_url: "/admin".into(),
-            app_name: "Test".into(),
-            display_timezone: chrono_tz::UTC,
-            thumbnail_cache_size: 1024 * 1024,
-        },
-        true,
-    )
-    .unwrap();
-    let app = test::init_service(build_app!(app_data)).await;
 
     let req = test::TestRequest::get()
         .uri("/download/mylink")
@@ -111,31 +88,11 @@ async fn linked_object_is_accessible() {
 
 #[actix_web::test]
 async fn unlisted_objects_not_shown_in_listing() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir(dir.path().join("owned_data")).unwrap();
+    let (dir, app) = test_app!(
+        r#"{"publicfile":{"ownership":"Owned"},"hiddenfile":{"ownership":"Owned","unlisted_key":"secret"}}"#
+    );
     std::fs::write(dir.path().join("owned_data/publicfile"), "public").unwrap();
     std::fs::write(dir.path().join("owned_data/hiddenfile"), "hidden").unwrap();
-    std::fs::write(
-        dir.path().join("metadata.json"),
-        r#"{"publicfile":{"ownership":"Owned"},"hiddenfile":{"ownership":"Owned","unlisted_key":"secret"}}"#,
-    )
-    .unwrap();
-    let app_data = AppData::with_config(
-        Config {
-            bind_address: "localhost".into(),
-            bind_port: 8080,
-            data_path: dir.path().to_owned(),
-            linked_objects_root: dir.path().to_owned(),
-            download_url: "/download".into(),
-            admin_url: "/admin".into(),
-            app_name: "Test".into(),
-            display_timezone: chrono_tz::UTC,
-            thumbnail_cache_size: 1024 * 1024,
-        },
-        true,
-    )
-    .unwrap();
-    let app = test::init_service(build_app!(app_data)).await;
 
     let req = test::TestRequest::get().uri("/download").to_request();
     let resp = test::call_service(&app, req).await;
@@ -169,33 +126,11 @@ async fn root_listing_json_mode() {
 
 #[actix_web::test]
 async fn directory_listing_json_mode() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir(dir.path().join("owned_data")).unwrap();
+    let (dir, app) = test_app!(r#"{"mydir":{"ownership":{"Linked":"mydir"}}}"#);
     let content_dir = dir.path().join("mydir");
     std::fs::create_dir(&content_dir).unwrap();
     std::fs::write(content_dir.join("alpha.txt"), "aaa").unwrap();
     std::fs::write(content_dir.join("beta.txt"), "bbb").unwrap();
-    std::fs::write(
-        dir.path().join("metadata.json"),
-        r#"{"mydir":{"ownership":{"Linked":"mydir"}}}"#,
-    )
-    .unwrap();
-    let app_data = AppData::with_config(
-        Config {
-            bind_address: "localhost".into(),
-            bind_port: 8080,
-            data_path: dir.path().to_owned(),
-            linked_objects_root: dir.path().to_owned(),
-            download_url: "/download".into(),
-            admin_url: "/admin".into(),
-            app_name: "Test".into(),
-            display_timezone: chrono_tz::UTC,
-            thumbnail_cache_size: 1024 * 1024,
-        },
-        true,
-    )
-    .unwrap();
-    let app = test::init_service(build_app!(app_data)).await;
 
     let req = test::TestRequest::get()
         .uri("/download/mydir?mode=json")
@@ -378,37 +313,24 @@ async fn asset_brotli_compressed_when_accepted() {
 
 #[actix_web::test]
 async fn unlisted_object_requires_key() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir(dir.path().join("owned_data")).unwrap();
+    let (dir, app) = test_app!(r#"{"secretfile":{"ownership":"Owned","unlisted_key":"mykey"}}"#);
     std::fs::write(dir.path().join("owned_data/secretfile"), "secret content").unwrap();
-    std::fs::write(
-        dir.path().join("metadata.json"),
-        r#"{"secretfile":{"ownership":"Owned","unlisted_key":"mykey"}}"#,
-    )
-    .unwrap();
-    let app_data = AppData::with_config(
-        Config {
-            bind_address: "localhost".into(),
-            bind_port: 8080,
-            data_path: dir.path().to_owned(),
-            linked_objects_root: dir.path().to_owned(),
-            download_url: "/download".into(),
-            admin_url: "/admin".into(),
-            app_name: "Test".into(),
-            display_timezone: chrono_tz::UTC,
-            thumbnail_cache_size: 1024 * 1024,
-        },
-        true,
-    )
-    .unwrap();
-    let app = test::init_service(build_app!(app_data)).await;
 
+    // No key → 404
     let req = test::TestRequest::get()
         .uri("/download/secretfile")
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 404);
 
+    // Wrong key → 404
+    let req = test::TestRequest::get()
+        .uri("/download/secretfile?key=wrongkey")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+
+    // Correct key → 200
     let req = test::TestRequest::get()
         .uri("/download/secretfile?key=mykey")
         .to_request();

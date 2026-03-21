@@ -1,6 +1,6 @@
 use crate::{
     app_data::AppData,
-    error::Result,
+    error::{Result, TemplateSnafu},
     templates::{AdminListing, util::url_encode},
 };
 use actix_web::{
@@ -10,6 +10,7 @@ use actix_web::{
 use chrono::{DateTime, Utc};
 use horrorshow::Template as _;
 use relative_path::RelativePathBuf;
+use snafu::ResultExt as _;
 use std::sync::Arc;
 
 #[derive(Debug, serde::Deserialize)]
@@ -38,9 +39,11 @@ async fn browse_linked(
 #[get("")]
 async fn admin_dashboard(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
     let items = app.list_objects_admin().await?;
-    Ok(HttpResponse::Ok()
-        .content_type(mime::TEXT_HTML_UTF_8)
-        .body(AdminListing::new_wrapped(&app, items).into_string()?))
+    Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(
+        AdminListing::new_wrapped(&app, items)
+            .into_string()
+            .context(TemplateSnafu)?,
+    ))
 }
 
 /// Create object: upload file (no ?link) or register linked path (?link=<path>)

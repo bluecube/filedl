@@ -3,7 +3,9 @@ use std::path::Path;
 use fast_image_resize::{ResizeOptions, Resizer};
 use image::{DynamicImage, ImageBuffer, Pixel, RgbaImage, imageops};
 
-use crate::{error::Result, thumbnails::cropping::crop_coordinates};
+use super::{IOSnafu, ImageSnafu, ThumbnailResult as Result};
+use crate::thumbnails::cropping::crop_coordinates;
+use snafu::ResultExt as _;
 
 pub fn create_image_thumbnail(file: &Path, resolution: (u32, u32)) -> Result<RgbaImage> {
     let img = open_image(file)?;
@@ -25,9 +27,9 @@ pub fn create_image_thumbnail(file: &Path, resolution: (u32, u32)) -> Result<Rgb
 }
 
 fn open_image(path: &Path) -> Result<DynamicImage> {
-    let mut reader = image::ImageReader::open(path)?;
+    let mut reader = image::ImageReader::open(path).context(IOSnafu)?;
     reader.no_limits();
-    Ok(reader.decode()?)
+    reader.decode().context(ImageSnafu)
 }
 
 fn crop_and_resize(
@@ -55,7 +57,7 @@ fn crop_and_resize(
 }
 
 fn get_orientation(path: &Path) -> Result<u32> {
-    let file = std::fs::File::open(path)?;
+    let file = std::fs::File::open(path).context(IOSnafu)?;
     let mut bufreader = std::io::BufReader::new(file);
     let exifreader = exif::Reader::new();
     let Ok(exif_tags) = exifreader.read_from_container(&mut bufreader) else {

@@ -1,67 +1,55 @@
-use std::sync::Arc;
+use snafu::prelude::*;
 
 pub type Result<T> = std::result::Result<T, FiledlError>;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub))]
 pub enum FiledlError {
-    #[error("Object not found")]
-    ObjectNotFound,
-    #[error("Object {object_id} has expired")]
-    Expired { object_id: String },
-    #[error("Object {object_id} already exists")]
-    ObjectExists { object_id: Arc<str> },
-    #[error("Unlisted object {path} accessed with wrong key {key:?}")]
-    Unlisted { path: String, key: Option<String> },
-    #[error("Attempting to use unsupported download mode")]
-    BadDownloadMode,
-    #[error("Directory traversal in path {path}")]
-    DirectoryTraversal { path: String },
-    #[error("Template error: {source}")]
+    #[snafu(display("App error at {location}"))]
+    #[snafu(context(false))]
+    AppDataError {
+        source: crate::app_data::AppDataError,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    #[snafu(display("Attempting to use unsupported download mode at {location}"))]
+    BadDownloadMode {
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    #[snafu(display("Template rendering failed at {location}"))]
     TemplateError {
-        #[from]
-        #[source]
         source: horrorshow::Error,
+        #[snafu(implicit)]
+        location: snafu::Location,
     },
-    #[error("Image error: {source}")]
-    ImageError {
-        #[from]
-        #[source]
-        source: image::error::ImageError,
-    },
-    #[error("Error when creating zip file: {source}")]
+
+    #[snafu(display("Zip archive creation failed at {location}"))]
     ZippityBuildError {
-        #[from]
-        #[source]
-        source: zippity::AddDirectoryRecursiveError,
+        #[snafu(source(from(zippity::AddDirectoryRecursiveError, Box::new)))]
+        source: Box<zippity::AddDirectoryRecursiveError>,
+        #[snafu(implicit)]
+        location: snafu::Location,
     },
-    #[error("IO error: {source}")]
+
+    #[snafu(display("IO error at {location}"))]
     IOError {
-        #[from]
-        #[source]
         source: std::io::Error,
-    },
-    #[error("Pdf loading error")]
-    PdfLoadError(hayro::hayro_syntax::LoadPdfError),
-    #[error("Error when extracting request payload: {source}")]
-    PayloadError {
-        #[from]
-        #[source]
-        source: actix_web::error::PayloadError,
+        #[snafu(implicit)]
+        location: snafu::Location,
     },
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Snafu)]
 pub enum StartupError {
-    #[error("Error when reading configuration: {source}")]
+    #[snafu(transparent)]
     ConfigError {
-        #[from]
-        #[source]
-        source: figment::Error,
+        #[snafu(source(from(figment::Error, Box::new)))]
+        source: Box<figment::Error>,
     },
-    #[error("IO error: {source}")]
-    IOError {
-        #[from]
-        #[source]
-        source: std::io::Error,
-    },
+
+    #[snafu(transparent)]
+    IOError { source: std::io::Error },
 }

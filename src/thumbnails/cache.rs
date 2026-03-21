@@ -9,8 +9,7 @@ use actix_web::web::Bytes;
 use quick_cache::{Weighter, sync::Cache};
 use serde::Serialize;
 
-use super::{ThumbnailType, create_thumbnail};
-use crate::error::Result;
+use super::{ThumbnailResult as Result, ThumbnailType, create_thumbnail};
 
 /// Describes a cached rendered thumbnail
 #[derive(Clone, Hash, Debug, PartialEq, Eq)]
