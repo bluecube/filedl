@@ -192,6 +192,8 @@ document.querySelectorAll('.form-section').forEach(section => {
 
 // --- add form ---
 
+const adminBaseUrl = window.location.pathname.replace(/\/$/, '');
+
 const form = document.getElementById('add-form');
 const fileInput = form.querySelector('[name=file]');
 const pathInput = form.querySelector('[name=path]');
@@ -252,7 +254,7 @@ async function fetchBrowseLinkedEntries(dir) {
     if (dir in autocompleteCache)
         return autocompleteCache[dir];
     try {
-        const resp = await fetch('browse_linked?path=' + encodeURIComponent(dir));
+        const resp = await fetch(adminBaseUrl + '/browse_linked?path=' + encodeURIComponent(dir));
         if (!resp.ok)
             return null;
         const entries = await resp.json();
@@ -391,7 +393,7 @@ form.addEventListener('submit', async (e) => {
     if (unlistedKey) params.push('unlisted_key=' + encodeURIComponent(unlistedKey));
     if (expires) params.push('expires=' + encodeURIComponent(expires));
 
-    let url = 'objects/' + encodeURIComponent(id);
+    let url = adminBaseUrl + '/objects/' + encodeURIComponent(id);
     if (params.length > 0) url += '?' + params.join('&');
 
     let fetchOptions = { method: 'PUT' };
