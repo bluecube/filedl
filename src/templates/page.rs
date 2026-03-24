@@ -7,7 +7,8 @@ pub struct Page<'a, T, C> {
     pub asset_base_url: &'a str,
     pub static_content_hash: &'a str,
     pub display_timezone: &'a Tz,
-    pub head_script: Option<&'a str>,
+    pub is_admin: bool,
+    pub has_scripts: bool,
 
     pub title: T,
     pub content: C,
@@ -22,6 +23,12 @@ impl<T: RenderOnce, C: RenderOnce> RenderOnce for Page<'_, T, C> {
                     meta(
                         name = "viewport", content="width=device-width, initial-scale=1"
                     );
+                    @ if self.is_admin {
+                    link(
+                        rel = "icon",
+                        href = self.asset_url("admin_favicon.svg")
+                    );
+                    } else {
                     link(
                         rel = "icon",
                         href = self.asset_url("favicon.ico"),
@@ -31,6 +38,7 @@ impl<T: RenderOnce, C: RenderOnce> RenderOnce for Page<'_, T, C> {
                         rel = "icon",
                         href = self.asset_url("favicon.svg")
                     );
+                    }
                     link(
                         rel = "stylesheet",
                         href = self.asset_url("style.min.css")
@@ -39,9 +47,9 @@ impl<T: RenderOnce, C: RenderOnce> RenderOnce for Page<'_, T, C> {
                         rel = "stylesheet",
                         href = self.asset_url("icons.css")
                     );
-                    @ if let Some(head_script) = self.head_script {
+                    @ if self.has_scripts {
                     script(
-                        src = self.asset_url(head_script),
+                        src = self.asset_url(if self.is_admin { "admin.min.js" } else { "gallery.min.js" }),
                         defer
                     );
                     }

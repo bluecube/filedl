@@ -46,7 +46,8 @@ impl<'a> DirListing<'a> {
         };
         Page {
             asset_base_url: app.get_download_base_url(),
-            head_script: Some("gallery.min.js"),
+            is_admin: false,
+            has_scripts: true,
             title: Title::new(&dir_listing),
             content: dir_listing,
             static_content_hash: app.get_static_content_hash(),

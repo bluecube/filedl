@@ -23,7 +23,8 @@ impl<'a> ErrorPage<'a> {
 
         Page {
             asset_base_url: base_url,
-            head_script: None,
+            is_admin,
+            has_scripts: false,
             title,
             content: ErrorPage {
                 app_name: app.get_app_name(),
