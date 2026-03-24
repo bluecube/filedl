@@ -1,10 +1,10 @@
 use crate::{
     app_data::AppData,
-    error::{Result, TemplateSnafu},
+    error::{self, TemplateSnafu},
     templates::{AdminListing, util::url_encode},
 };
 use actix_web::{
-    HttpResponse, delete, get, patch, put,
+    HttpRequest, HttpResponse, delete, get, patch, put,
     web::{self, Path, Payload},
 };
 use chrono::{DateTime, Utc};
@@ -30,20 +30,27 @@ struct BrowseLinkedQuery {
 async fn browse_linked(
     app: web::Data<Arc<AppData>>,
     query: web::Query<BrowseLinkedQuery>,
-) -> Result<HttpResponse> {
-    let entries = app.browse_linked_directory(&query.path).await?;
-    Ok(HttpResponse::Ok().json(entries))
+    req: HttpRequest,
+) -> HttpResponse {
+    error::json_error_wrapper(&req, async {
+        let entries = app.browse_linked_directory(&query.path).await?;
+        Ok(HttpResponse::Ok().json(entries))
+    })
+    .await
 }
 
 /// Admin dashboard — lists all objects including unlisted ones
 #[get("")]
-async fn admin_dashboard(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
-    let items = app.list_objects_admin().await?;
-    Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(
-        AdminListing::new_wrapped(&app, items)
-            .into_string()
-            .context(TemplateSnafu)?,
-    ))
+async fn admin_dashboard(app: web::Data<Arc<AppData>>, req: HttpRequest) -> HttpResponse {
+    error::styled_error_wrapper(&req, &app, async {
+        let items = app.list_objects_admin().await?;
+        Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(
+            AdminListing::new_wrapped(&app, items)
+                .into_string()
+                .context(TemplateSnafu)?,
+        ))
+    })
+    .await
 }
 
 /// Create object: upload file (no ?link) or register linked path (?link=<path>)
@@ -54,41 +61,45 @@ async fn rest_create_object(
     path: Path<String>,
     query: web::Query<AdminCreateQuery>,
     payload: Payload,
-) -> Result<HttpResponse> {
-    let object_id: Arc<str> = path.into_inner().into();
-    let query = query.into_inner();
-    let unlisted_key = query.unlisted_key;
-    let expires = query.expires;
+    req: HttpRequest,
+) -> HttpResponse {
+    error::json_error_wrapper(&req, async {
+        let object_id: Arc<str> = path.into_inner().into();
+        let query = query.into_inner();
+        let unlisted_key = query.unlisted_key;
+        let expires = query.expires;
 
-    let download_url = match &unlisted_key {
-        Some(key) => format!(
-            "{}/{}?key={}",
-            app.get_download_base_url(),
-            url_encode(&object_id),
-            key
-        ),
-        None => format!("{}/{}", app.get_download_base_url(), url_encode(&object_id)),
-    };
+        let download_url = match &unlisted_key {
+            Some(key) => format!(
+                "{}/{}?key={}",
+                app.get_download_base_url(),
+                url_encode(&object_id),
+                key
+            ),
+            None => format!("{}/{}", app.get_download_base_url(), url_encode(&object_id)),
+        };
 
-    if let Some(link_path_str) = &query.link {
-        let link_path = RelativePathBuf::from(link_path_str.as_str());
-        app.create_linked_object(object_id, link_path, unlisted_key, expires)
-            .await?;
-    } else {
-        app.upload_simple_object(object_id, payload, unlisted_key, expires)
-            .await?;
-    }
+        if let Some(link_path_str) = &query.link {
+            let link_path = RelativePathBuf::from(link_path_str.as_str());
+            app.create_linked_object(object_id, link_path, unlisted_key, expires)
+                .await?;
+        } else {
+            app.upload_simple_object(object_id, payload, unlisted_key, expires)
+                .await?;
+        }
 
-    if expires.is_some() {
-        app.signal_expiry_change();
-    }
+        if expires.is_some() {
+            app.signal_expiry_change();
+        }
 
-    #[derive(serde::Serialize)]
-    struct CreateResult {
-        download_url: String,
-    }
+        #[derive(serde::Serialize)]
+        struct CreateResult {
+            download_url: String,
+        }
 
-    Ok(HttpResponse::Ok().json(CreateResult { download_url }))
+        Ok(HttpResponse::Ok().json(CreateResult { download_url }))
+    })
+    .await
 }
 
 /// Update object metadata (visibility, expiry). Both fields are always updated.
@@ -105,15 +116,19 @@ async fn rest_patch_object(
     app: web::Data<Arc<AppData>>,
     path: Path<String>,
     body: web::Json<PatchObjectBody>,
-) -> Result<HttpResponse> {
-    let object_id = path.into_inner();
-    let body = body.into_inner();
-    let mut obj = app.get_object_mut(&object_id).await?;
-    obj.unlisted_key = body.unlisted_key;
-    obj.expires = body.expires;
-    drop(obj);
-    app.signal_expiry_change();
-    Ok(HttpResponse::Ok().finish())
+    req: HttpRequest,
+) -> HttpResponse {
+    error::json_error_wrapper(&req, async {
+        let object_id = path.into_inner();
+        let body = body.into_inner();
+        let mut obj = app.get_object_mut(&object_id).await?;
+        obj.unlisted_key = body.unlisted_key;
+        obj.expires = body.expires;
+        drop(obj);
+        app.signal_expiry_change();
+        Ok(HttpResponse::Ok().finish())
+    })
+    .await
 }
 
 /// Delete an object (owned: removes data from disk; linked: removes metadata only)
@@ -122,10 +137,14 @@ async fn rest_patch_object(
 async fn rest_delete_object(
     app: web::Data<Arc<AppData>>,
     path: Path<String>,
-) -> Result<HttpResponse> {
-    let object_id = path.into_inner();
-    app.delete_object(&object_id).await?;
-    Ok(HttpResponse::Ok().finish())
+    req: HttpRequest,
+) -> HttpResponse {
+    error::json_error_wrapper(&req, async {
+        let object_id = path.into_inner();
+        app.delete_object(&object_id).await?;
+        Ok(HttpResponse::Ok().finish())
+    })
+    .await
 }
 
 /// Thumbnail cache statistics endpoint

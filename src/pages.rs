@@ -1,15 +1,15 @@
 use crate::{
     app_data::{AppData, DirListingItem, ItemType, ObjectNotFoundSnafu, ResolvedObject},
-    error::{BadDownloadModeSnafu, FiledlError, IOSnafu, Result, TemplateSnafu, ZippityBuildSnafu},
+    error::{self, BadDownloadModeSnafu, IOSnafu, Result, TemplateSnafu, ZippityBuildSnafu},
     templates,
     thumbnails::ThumbnailType,
 };
 use actix_files::NamedFile;
 use actix_web::{
-    CustomizeResponder, HttpRequest, HttpResponse, Responder, ResponseError,
+    CustomizeResponder, HttpRequest, HttpResponse, Responder,
     body::{BoxBody, EitherBody},
     get,
-    http::{StatusCode, header},
+    http::header,
     routes,
     web::{self},
 };
@@ -71,34 +71,11 @@ fn cache_control(cache_hash: Option<&str>) -> (&'static str, &'static str) {
     )
 }
 
-impl ResponseError for FiledlError {
-    fn status_code(&self) -> actix_web::http::StatusCode {
-        match self {
-            FiledlError::AppDataError { source, .. } => source.status_code(),
-            FiledlError::BadDownloadMode { .. } => StatusCode::NOT_FOUND,
-            FiledlError::IOError { source, .. } => match source.kind() {
-                std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
-                _ => {
-                    log::error!("Converting to user error: {}", source);
-                    StatusCode::INTERNAL_SERVER_ERROR
-                }
-            },
-            source => {
-                let chain: Vec<_> = snafu::ErrorCompat::iter_chain(source)
-                    .map(|e| e.to_string())
-                    .collect();
-                log::error!("Internal error: {}", chain.join("\n  caused by: "));
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        }
-    }
-}
-
 #[routes]
 #[get("/index.html")]
 #[get("/")]
-pub async fn index_page(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok()
+pub async fn index_page(app: web::Data<Arc<AppData>>) -> HttpResponse {
+    HttpResponse::Ok()
         .content_type(mime::TEXT_HTML_UTF_8)
         .body(
             format!(
@@ -106,7 +83,7 @@ pub async fn index_page(app: web::Data<Arc<AppData>>) -> Result<HttpResponse> {
                 app.get_download_base_url(),
                 app.get_download_base_url(),
             )
-        ))
+        )
 }
 
 fn select_content_encoding(req: &HttpRequest) -> ContentEncoding {
@@ -125,17 +102,23 @@ fn select_content_encoding(req: &HttpRequest) -> ContentEncoding {
 async fn download_root(
     app: web::Data<Arc<AppData>>,
     query: web::Query<DownloadQuery>,
-) -> Result<HttpResponse> {
-    let items = app.list_objects().await?;
-    match query.mode {
-        DownloadMode::Default => Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(
-            templates::DirListing::new_wrapped(&app, "", None, None, items)
-                .into_string()
-                .context(TemplateSnafu)?,
-        )),
-        DownloadMode::Json => Ok(HttpResponse::Ok().json(items)),
-        _ => BadDownloadModeSnafu.fail(),
-    }
+    req: HttpRequest,
+) -> HttpResponse {
+    error::styled_error_wrapper(&req, &app, async {
+        let items = app.list_objects().await?;
+        match query.mode {
+            DownloadMode::Default => {
+                Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(
+                    templates::DirListing::new_wrapped(&app, "", None, None, items)
+                        .into_string()
+                        .context(TemplateSnafu)?,
+                ))
+            }
+            DownloadMode::Json => Ok(HttpResponse::Ok().json(items)),
+            _ => BadDownloadModeSnafu.fail(),
+        }
+    })
+    .await
 }
 
 #[get("/{object:.*}")]
@@ -144,54 +127,57 @@ async fn download_object(
     path: web::Path<String>,
     query: web::Query<DownloadQuery>,
     req: HttpRequest,
-) -> Result<HttpResponse> {
-    let object_path = path.into_inner();
-    Ok(if query.mode == DownloadMode::Assets {
-        asset_download(&app, &object_path, &req)?
-    } else {
-        let resolved_object = app
-            .resolve_object(object_path, query.key.as_deref())
-            .await?;
+) -> HttpResponse {
+    error::styled_error_wrapper(&req, &app, async {
+        let object_path = path.into_inner();
+        Ok(if query.mode == DownloadMode::Assets {
+            asset_download(&app, &object_path, &req)?
+        } else {
+            let resolved_object = app
+                .resolve_object(object_path, query.key.as_deref())
+                .await?;
 
-        match resolved_object.item_type() {
-            ItemType::Directory => match query.mode {
-                DownloadMode::Default => {
-                    let items = resolved_object.list().await?;
-                    dir_listing(
-                        &app,
-                        resolved_object.object_path(),
-                        query.key.as_deref(),
-                        resolved_object.get_expires(),
-                        items,
-                    )
-                    .await?
-                }
-                DownloadMode::Download => zip_download(&app, &req, resolved_object).await?,
-                DownloadMode::Json => {
-                    let items = resolved_object.list().await?;
-                    HttpResponse::Ok().json(items)
-                }
-                DownloadMode::Assets => unreachable!("Was handled before"),
-                _ => return BadDownloadModeSnafu.fail(),
-            },
-            _ => match query.mode {
-                DownloadMode::Default => file_download(resolved_object, false, &req).await?,
-                DownloadMode::Download => file_download(resolved_object, true, &req).await?,
-                DownloadMode::Thumbnail => {
-                    thumb_download(
-                        resolved_object,
-                        query.size,
-                        query.cache_hash.as_deref(),
-                        query
-                            .thumbnail_type
-                            .unwrap_or_else(|| ThumbnailType::from_request(&req)),
-                    )
-                    .await?
-                }
-                _ => return BadDownloadModeSnafu.fail(),
-            },
-        }
+            match resolved_object.item_type() {
+                ItemType::Directory => match query.mode {
+                    DownloadMode::Default => {
+                        let items = resolved_object.list().await?;
+                        dir_listing(
+                            &app,
+                            resolved_object.object_path(),
+                            query.key.as_deref(),
+                            resolved_object.get_expires(),
+                            items,
+                        )
+                        .await?
+                    }
+                    DownloadMode::Download => zip_download(&app, &req, resolved_object).await?,
+                    DownloadMode::Json => {
+                        let items = resolved_object.list().await?;
+                        HttpResponse::Ok().json(items)
+                    }
+                    DownloadMode::Assets => unreachable!("Was handled before"),
+                    _ => BadDownloadModeSnafu.fail()?,
+                },
+                _ => match query.mode {
+                    DownloadMode::Default => file_download(resolved_object, false, &req).await?,
+                    DownloadMode::Download => file_download(resolved_object, true, &req).await?,
+                    DownloadMode::Thumbnail => {
+                        thumb_download(
+                            resolved_object,
+                            query.size,
+                            query.cache_hash.as_deref(),
+                            query
+                                .thumbnail_type
+                                .unwrap_or_else(|| ThumbnailType::from_request(&req)),
+                        )
+                        .await?
+                    }
+                    _ => BadDownloadModeSnafu.fail()?,
+                },
+            }
+        })
     })
+    .await
 }
 
 async fn file_download(
@@ -341,13 +327,15 @@ where
     })
 }
 
-/// Not found handler used for default route — should be unreachable
-pub async fn default_service() -> Result<HttpResponse> {
-    log::error!("default_service hit — this route should be unreachable");
-    ObjectNotFoundSnafu {
-        object_id: String::new(),
-    }
-    .fail()?
+/// Not found handler used for default route
+pub async fn default_service(app: web::Data<Arc<AppData>>, req: HttpRequest) -> HttpResponse {
+    error::styled_error_wrapper(&req, &app, async {
+        ObjectNotFoundSnafu {
+            object_id: String::new(),
+        }
+        .fail()?
+    })
+    .await
 }
 
 pub fn configure_pages(cfg: &mut web::ServiceConfig) {

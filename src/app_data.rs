@@ -30,21 +30,21 @@ use tokio::{
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)))]
 pub enum AppDataError {
-    #[snafu(display("Object {object_id} not found at {location}"))]
+    #[snafu(display("Object {object_id:?} not found at {location}"))]
     ObjectNotFound {
         object_id: String,
         #[snafu(implicit)]
         location: snafu::Location,
     },
 
-    #[snafu(display("Object {object_id} has expired at {location}"))]
+    #[snafu(display("Object {object_id:?} has expired at {location}"))]
     Expired {
         object_id: String,
         #[snafu(implicit)]
         location: snafu::Location,
     },
 
-    #[snafu(display("Object {object_id} already exists at {location}"))]
+    #[snafu(display("Object {object_id:?} already exists at {location}"))]
     ObjectExists {
         object_id: Arc<str>,
         #[snafu(implicit)]
@@ -451,6 +451,10 @@ impl AppData {
 
     pub fn get_admin_objects_base_url(&self) -> &str {
         &self.admin_objects_base_url
+    }
+
+    pub fn get_admin_url(&self) -> &str {
+        &self.config.admin_url
     }
 
     pub fn get_app_name(&self) -> &str {

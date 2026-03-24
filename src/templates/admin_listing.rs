@@ -48,7 +48,7 @@ impl<'a> AdminListing<'a> {
         };
         Page {
             asset_base_url: app.get_admin_objects_base_url(),
-            head_script: "admin.min.js",
+            head_script: Some("admin.min.js"),
             title: Title {
                 app_name: app.get_app_name(),
             },

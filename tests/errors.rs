@@ -110,6 +110,67 @@ async fn linked_object_with_missing_file_returns_404() {
 }
 
 #[actix_web::test]
+async fn error_response_is_html_with_status_and_hash() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::get()
+        .uri("/download/nonexistent")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+
+    let body = String::from_utf8(test::read_body(resp).await.to_vec()).unwrap();
+    assert!(body.contains("404"), "body should contain status code");
+    assert!(
+        body.contains("Not Found"),
+        "body should contain reason phrase"
+    );
+    assert!(
+        body.contains("Error reference:"),
+        "body should contain error reference label"
+    );
+    // Error hash is 8 hex chars
+    assert!(
+        body.contains("<code>"),
+        "body should contain the error hash in a code element"
+    );
+}
+
+#[actix_web::test]
+async fn admin_error_page_has_admin_class() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::get()
+        .uri("/admin/nonexistent")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+
+    let body = String::from_utf8(test::read_body(resp).await.to_vec()).unwrap();
+    assert!(
+        body.contains(r#"class="admin""#),
+        "admin error page should have the admin class on the content section"
+    );
+}
+
+#[actix_web::test]
+async fn download_error_page_lacks_admin_class() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::get()
+        .uri("/download/nonexistent")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+
+    let body = String::from_utf8(test::read_body(resp).await.to_vec()).unwrap();
+    assert!(
+        !body.contains(r#"class="admin""#),
+        "download error page should not have the admin class"
+    );
+}
+
+#[actix_web::test]
 async fn thumbnail_of_non_image_returns_500() {
     let (_dir, app) = test_app!();
 

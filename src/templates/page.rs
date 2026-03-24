@@ -7,7 +7,7 @@ pub struct Page<'a, T, C> {
     pub asset_base_url: &'a str,
     pub static_content_hash: &'a str,
     pub display_timezone: &'a Tz,
-    pub head_script: &'a str,
+    pub head_script: Option<&'a str>,
 
     pub title: T,
     pub content: C,
@@ -39,10 +39,12 @@ impl<T: RenderOnce, C: RenderOnce> RenderOnce for Page<'_, T, C> {
                         rel = "stylesheet",
                         href = self.asset_url("icons.css")
                     );
+                    @ if let Some(head_script) = self.head_script {
                     script(
-                        src = self.asset_url(self.head_script),
+                        src = self.asset_url(head_script),
                         defer
                     );
+                    }
                     title: self.title;
                 }
                 body {
