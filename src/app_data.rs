@@ -573,6 +573,18 @@ impl AppData {
         Ok(())
     }
 
+    /// Validate that an object ID contains no path separators.
+    /// Object IDs must be flat identifiers — slashes would create nested directories.
+    fn validate_object_id(object_id: &str) -> AppDataResult<()> {
+        if object_id.contains('/') {
+            return DirectoryTraversalSnafu {
+                path: object_id.to_string(),
+            }
+            .fail();
+        }
+        Ok(())
+    }
+
     pub async fn create_linked_object(
         &self,
         object_id: Arc<str>,
@@ -580,6 +592,14 @@ impl AppData {
         unlisted_key: Option<Arc<str>>,
         expires: Option<DateTime<Utc>>,
     ) -> AppDataResult<()> {
+        Self::validate_object_id(&object_id)?;
+        if link_path.as_str().split('/').any(|part| part == "..") {
+            return DirectoryTraversalSnafu {
+                path: link_path.to_string(),
+            }
+            .fail();
+        }
+
         // Verify the path actually exists at creation time
         let fs_path = link_path.to_path(&self.config.linked_objects_root);
         tokio::fs::metadata(&fs_path).await.context(IOSnafu)?;
@@ -788,6 +808,8 @@ impl AppData {
         expires: Option<DateTime<Utc>>,
     ) -> AppDataResult<()> {
         use futures::StreamExt;
+
+        Self::validate_object_id(&object_id)?;
 
         // 1. Optimistic check of the metadata, allowing us to reject duplicate uploads early.
         if self.object_from_id(&object_id).await.is_ok() {

@@ -3,6 +3,7 @@ use common::test_app;
 
 use actix_web::test;
 use chrono::Utc;
+use test_case::test_case;
 
 #[actix_web::test]
 async fn duplicate_linked_object_returns_409() {
@@ -460,4 +461,32 @@ async fn browse_linked_nonexistent_returns_error() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert!(!resp.status().is_success());
+}
+
+#[test_case("/admin/objects/evil?link=../etc/passwd"; "leading dotdot in link path")]
+#[test_case("/admin/objects/evil?link=foo/../../etc"; "embedded dotdot in link path")]
+#[test_case("/admin/objects/../escaped?link=file.txt"; "dotdot in linked object id")]
+#[test_case("/admin/objects/foo/bar?link=file.txt"; "slash in linked object id")]
+#[actix_web::test]
+async fn linked_object_rejects_invalid_path(uri: &str) {
+    let (dir, app) = test_app!();
+    std::fs::write(dir.path().join("file.txt"), "content").unwrap();
+
+    let req = test::TestRequest::put().uri(uri).to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+}
+
+#[test_case("/admin/objects/../escaped"; "dotdot in upload object id")]
+#[test_case("/admin/objects/foo/bar"; "slash in upload object id")]
+#[actix_web::test]
+async fn upload_rejects_invalid_object_id(uri: &str) {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::put()
+        .uri(uri)
+        .set_payload("malicious")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
 }
