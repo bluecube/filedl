@@ -24,7 +24,10 @@ macro_rules! build_app {
             .wrap(::actix_web::middleware::NormalizePath::trim())
             .wrap(
                 ::actix_web::middleware::DefaultHeaders::new()
-                    .add(::actix_web::http::header::ContentType::html()),
+                    .add(::actix_web::http::header::ContentType::html())
+                    .add(("X-Content-Type-Options", "nosniff"))
+                    .add(("Referrer-Policy", "no-referrer"))
+                    .add(("X-Frame-Options", "SAMEORIGIN")),
             )
             .wrap(::actix_web::middleware::Compress::default())
             .configure($crate::configure_services)
