@@ -66,10 +66,11 @@ impl RenderOnce for ThumbnailImg<'_> {
         let u64 = format!("{}{}mode=thumbnail&size=64", base, sep);
         let u128 = format!("{}{}mode=thumbnail&size=128", base, sep);
         let u256 = format!("{}{}mode=thumbnail&size=256", base, sep);
+        let u512 = format!("{}{}mode=thumbnail&size=512", base, sep);
         tmpl << html!(
             img(
                 src = u64.as_str(),
-                srcset = format_args!("{} 64w, {} 128w, {} 256w", u64, u128, u256),
+                srcset = format_args!("{} 64w, {} 128w, {} 256w, {} 512w", u64, u128, u256, u512),
                 sizes = "4em",
                 loading = "lazy",
                 alt = ""

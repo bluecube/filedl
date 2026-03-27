@@ -219,7 +219,8 @@ async fn thumb_download<'a>(
     let size = match size {
         n if n <= 64 => 64,
         n if n <= 128 => 128,
-        _ => 256,
+        n if n <= 256 => 256,
+        _ => 512,
     };
 
     let (thumb, hash) = resolved_object
