@@ -66,6 +66,20 @@ pub enum AppDataError {
         location: snafu::Location,
     },
 
+    #[snafu(display("Invalid object ID {object_id:?} at {location}"))]
+    InvalidObjectId {
+        object_id: String,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
+    #[snafu(display("Invalid link path {path:?} at {location}"))]
+    InvalidLinkPath {
+        path: String,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+
     #[snafu(display("IO error at {location}"))]
     IOError {
         source: std::io::Error,
@@ -97,11 +111,40 @@ impl AppDataError {
                 StatusCode::NOT_FOUND
             }
             Self::ObjectExists { .. } => StatusCode::CONFLICT,
-            Self::DirectoryTraversal { .. } => StatusCode::BAD_REQUEST,
+            Self::DirectoryTraversal { .. }
+            | Self::InvalidObjectId { .. }
+            | Self::InvalidLinkPath { .. } => StatusCode::BAD_REQUEST,
             Self::IOError { source, .. } if source.kind() == std::io::ErrorKind::NotFound => {
                 StatusCode::NOT_FOUND
             }
             _ => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    /// Returns a user-facing message for errors that are safe to expose,
+    /// or `None` for internal errors whose details should not be leaked.
+    pub fn user_message(&self) -> Option<String> {
+        match self {
+            Self::ObjectNotFound { object_id, .. } => {
+                Some(format!("Object {:?} not found", object_id))
+            }
+            Self::Expired { object_id, .. } => Some(format!("Object {:?} has expired", object_id)),
+            Self::ObjectExists { object_id, .. } => {
+                Some(format!("Object {:?} already exists", object_id))
+            }
+            // Same message as ObjectNotFound to avoid revealing that an object is unlisted
+            Self::Unlisted { path, .. } => {
+                let object_id = path.split('/').next().unwrap_or(path);
+                Some(format!("Object {:?} not found", object_id))
+            }
+            Self::InvalidObjectId { object_id, .. } => {
+                Some(format!("Invalid object ID {:?}", object_id))
+            }
+            Self::InvalidLinkPath { path, .. } => Some(format!("Invalid link path {:?}", path)),
+            Self::DirectoryTraversal { .. }
+            | Self::IOError { .. }
+            | Self::ThumbnailError { .. }
+            | Self::PayloadError { .. } => None,
         }
     }
 }
@@ -577,8 +620,8 @@ impl AppData {
     /// Object IDs must be flat identifiers — slashes would create nested directories.
     fn validate_object_id(object_id: &str) -> AppDataResult<()> {
         if object_id.contains('/') {
-            return DirectoryTraversalSnafu {
-                path: object_id.to_string(),
+            return InvalidObjectIdSnafu {
+                object_id: object_id.to_string(),
             }
             .fail();
         }
@@ -594,7 +637,7 @@ impl AppData {
     ) -> AppDataResult<()> {
         Self::validate_object_id(&object_id)?;
         if link_path.as_str().split('/').any(|part| part == "..") {
-            return DirectoryTraversalSnafu {
+            return InvalidLinkPathSnafu {
                 path: link_path.to_string(),
             }
             .fail();

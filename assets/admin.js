@@ -62,6 +62,17 @@ function computeExpiry(section) {
     return new Date(Date.now() + EXPIRY_DURATIONS[val]).toISOString();
 }
 
+// --- error response parsing ---
+
+async function formatErrorResponse(resp) {
+    try {
+        const body = await resp.json();
+        return body.message + ' (ref: ' + body.error_reference + ')';
+    } catch {
+        return String(resp.status);
+    }
+}
+
 // --- edit overlay ---
 
 function openEdit(button) {
@@ -139,7 +150,7 @@ async function editSave() {
     if (resp.ok) {
         location.reload();
     } else {
-        document.getElementById('edit-result').textContent = 'Save failed: ' + resp.status;
+        document.getElementById('edit-result').textContent = 'Save failed: ' + await formatErrorResponse(resp);
     }
 }
 
@@ -148,7 +159,7 @@ async function editDelete() {
     if (resp.ok) {
         location.reload();
     } else {
-        document.getElementById('edit-result').textContent = 'Delete failed: ' + resp.status;
+        document.getElementById('edit-result').textContent = 'Delete failed: ' + await formatErrorResponse(resp);
     }
 }
 
@@ -405,7 +416,6 @@ form.addEventListener('submit', async (e) => {
     if (resp.ok) {
         location.reload();
     } else {
-        const body = await resp.text();
-        result.textContent = (mode === 'upload' ? 'Upload' : 'Link') + ' failed: ' + body;
+        result.textContent = (mode === 'upload' ? 'Upload' : 'Link') + ' failed: ' + await formatErrorResponse(resp);
     }
 });

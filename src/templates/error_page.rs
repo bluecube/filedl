@@ -7,6 +7,7 @@ pub struct ErrorPage<'a> {
     app_name: &'a str,
     status_code: StatusCode,
     error_hash: &'a str,
+    user_message: Option<String>,
     is_admin: bool,
 }
 
@@ -16,6 +17,7 @@ impl<'a> ErrorPage<'a> {
         base_url: &'a str,
         status_code: StatusCode,
         error_hash: &'a str,
+        user_message: Option<String>,
         is_admin: bool,
     ) -> Page<'a, String, ErrorPage<'a>> {
         let reason = status_code.canonical_reason().unwrap_or("Unknown Error");
@@ -30,6 +32,7 @@ impl<'a> ErrorPage<'a> {
                 app_name: app.get_app_name(),
                 status_code,
                 error_hash,
+                user_message,
                 is_admin,
             },
             static_content_hash: app.get_static_content_hash(),
@@ -51,13 +54,16 @@ impl RenderOnce for ErrorPage<'_> {
                 @ if !self.app_name.is_empty() {
                     div(class = "app-name"): self.app_name;
                 }
+                h1: &status_line;
             }
 
             section(id = "content", class? = self.is_admin.then_some("admin")) {
-                h1: &status_line;
-                p(class = "error-reference") {
+                @ if let Some(ref msg) = self.user_message {
+                    p: msg;
+                }
+                p {
                     : "Error reference: ";
-                    code: self.error_hash;
+                    code(id = "error-reference"): self.error_hash;
                 }
             }
         );

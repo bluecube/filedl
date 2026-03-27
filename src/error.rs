@@ -47,6 +47,15 @@ pub enum FiledlError {
 }
 
 impl FiledlError {
+    /// Returns a user-facing message for errors that are safe to expose,
+    /// or `None` for internal errors whose details should not be leaked.
+    pub fn user_message(&self) -> Option<String> {
+        match self {
+            FiledlError::AppDataError { source, .. } => source.user_message(),
+            _ => None,
+        }
+    }
+
     pub fn status_code(&self) -> StatusCode {
         match self {
             FiledlError::AppDataError { source, .. } => source.status_code(),
@@ -61,7 +70,7 @@ impl FiledlError {
 }
 
 /// Generates an error hash and logs the full error chain.
-fn log_error(req: &HttpRequest, err: &FiledlError) -> (StatusCode, String, Vec<String>) {
+fn log_error(req: &HttpRequest, err: &FiledlError) -> (StatusCode, String) {
     let status = err.status_code();
     let hash = format!("{:08x}", rand::rng().next_u32());
 
@@ -79,7 +88,7 @@ fn log_error(req: &HttpRequest, err: &FiledlError) -> (StatusCode, String, Vec<S
             .fold(String::new(), |acc, e| acc + "\n  - " + e)
     );
 
-    (status, hash, chain)
+    (status, hash)
 }
 
 /// Wraps an async handler body, rendering an HTML error page on failure.
@@ -96,7 +105,8 @@ pub async fn styled_error_wrapper(
         Err(err) => err,
     };
 
-    let (status, hash, _chain) = log_error(req, &err);
+    let (status, hash) = log_error(req, &err);
+    let user_message = err.user_message();
 
     let is_admin = req.path().starts_with(app.get_admin_url());
     let base_url = if is_admin {
@@ -105,7 +115,7 @@ pub async fn styled_error_wrapper(
         app.get_download_base_url()
     };
 
-    match crate::templates::ErrorPage::new_wrapped(app, base_url, status, &hash, is_admin)
+    match crate::templates::ErrorPage::new_wrapped(app, base_url, status, &hash, user_message, is_admin)
         .into_string()
     {
         Ok(html) => HttpResponse::build(status)
@@ -132,11 +142,13 @@ pub async fn json_error_wrapper(
         Err(err) => err,
     };
 
-    let (status, hash, chain) = log_error(req, &err);
+    let (status, hash) = log_error(req, &err);
+    let reason = status.canonical_reason().unwrap_or("Unknown Error");
+    let message = err.user_message().unwrap_or_else(|| reason.to_owned());
 
     HttpResponse::build(status).json(serde_json::json!({
-        "error": status.canonical_reason().unwrap_or("Unknown Error"),
-        "error_chain": chain,
+        "error": reason,
+        "message": message,
         "error_reference": hash,
     }))
 }
