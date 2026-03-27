@@ -8,6 +8,8 @@ use image::{Rgba, RgbaImage};
 use super::{IOSnafu, PdfLoadSnafu, ThumbnailResult as Result};
 use snafu::ResultExt as _;
 
+/// Creates a thumbnail from a PDF file.
+/// - `resolution` is the target resolution of the thumbnail, the actual output will be smaller to fit the aspect ratio.
 pub fn create_pdf_thumbnail(file: &Path, resolution: (u32, u32)) -> Result<RgbaImage> {
     // Calculate render resolution, targeting 512x512 render.
     let ratio = (512 / resolution.0).max(512 / resolution.1).max(1);
@@ -15,7 +17,14 @@ pub fn create_pdf_thumbnail(file: &Path, resolution: (u32, u32)) -> Result<RgbaI
 
     let rendered = create_pdf_thumbnail_inner(file, render_resolution)?;
 
-    let mut dst_image = RgbaImage::new(resolution.0, resolution.1);
+    let final_w = resolution
+        .0
+        .min(resolution.1 * rendered.width() / rendered.height());
+    let final_h = resolution
+        .1
+        .min(resolution.0 * rendered.height() / rendered.width());
+
+    let mut dst_image = RgbaImage::new(final_w, final_h);
     let mut resizer = Resizer::new();
     resizer
         .resize(&rendered, &mut dst_image, &ResizeOptions::new())
@@ -55,9 +64,9 @@ fn create_pdf_thumbnail_inner(file: &Path, resolution: (u32, u32)) -> Result<Rgb
     assert!(rendered_w <= resolution.0);
     assert!(rendered_h <= resolution.1);
 
-    let converted_pixmap_pixel = |x: u32, y: u32| -> Rgba<u8> {
-        assert!(x < pixmap.width().into(),);
-        assert!(y < pixmap.height().into(),);
+    let image = RgbaImage::from_fn(rendered_w, rendered_h, |x, y| {
+        assert!(x < pixmap.width().into());
+        assert!(y < pixmap.height().into());
 
         let px = pixmap.sample(x as u16, y as u16);
 
@@ -72,18 +81,6 @@ fn create_pdf_thumbnail_inner(file: &Path, resolution: (u32, u32)) -> Result<Rgb
         //     let convert = |v| ((v as u16) * 255u16 / (px.a as u16)) as u8;
         //     Rgba([convert(px.r), convert(px.g), convert(px.b), px.a])
         // }
-    };
-
-    let min_x = (resolution.0 - rendered_w) / 2;
-    let max_x = min_x + rendered_w;
-    let min_y = (resolution.1 - rendered_h) / 2;
-    let max_y = min_y + rendered_h;
-    let image = RgbaImage::from_fn(resolution.0, resolution.1, |x, y| {
-        if x < min_x || x >= max_x || y < min_y || y >= max_y {
-            Rgba([0, 0, 0, 0])
-        } else {
-            converted_pixmap_pixel(x - min_x, y - min_y)
-        }
     });
 
     Ok(image)
