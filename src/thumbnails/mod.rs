@@ -3,7 +3,13 @@ mod cropping;
 mod image_thumbnail;
 mod pdf_thumbnail;
 
-use std::{fmt::Display, hash::Hash, io::Cursor, path::Path};
+use std::{
+    fmt::Display,
+    hash::Hash,
+    io::Cursor,
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use actix_web::{HttpRequest, http::header, web::Bytes};
 use image::{ImageBuffer, ImageFormat, Pixel, Rgb, RgbImage, RgbaImage};
@@ -103,7 +109,9 @@ pub fn create_thumbnail(
     file: &Path,
     resolution: (u32, u32),
     thumbnail_type: ThumbnailType,
-) -> ThumbnailResult<Bytes> {
+) -> ThumbnailResult<(Bytes, Duration)> {
+    let start_time = Instant::now();
+
     let thumb = if is_path_pdf(file) {
         create_pdf_thumbnail(file, resolution)
     } else {
@@ -127,7 +135,17 @@ pub fn create_thumbnail(
             )
             .context(ImageSnafu)?;
     }
-    Ok(bytes.into())
+
+    let elapsed = Instant::now().duration_since(start_time);
+    log::debug!(
+        "Creating thumbnail for {} ({:?}, {}) took {:?}",
+        file.display(),
+        resolution,
+        thumbnail_type,
+        elapsed
+    );
+
+    Ok((bytes.into(), elapsed))
 }
 
 /// Returns a hash describing the source image, if it is thumbnailable,
