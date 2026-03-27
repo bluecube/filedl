@@ -1,5 +1,7 @@
 use crate::{
-    app_data::{AppData, DirListingItem, ItemType, ObjectNotFoundSnafu, ResolvedObject},
+    app_data::{
+        AppData, DirListingItem, InterfaceContext, ItemType, ObjectNotFoundSnafu, ResolvedObject,
+    },
     error::{self, BadDownloadModeSnafu, IOSnafu, Result, TemplateSnafu, ZippityBuildSnafu},
     templates,
     thumbnails::ThumbnailType,
@@ -126,12 +128,13 @@ async fn download_object(
     app: web::Data<Arc<AppData>>,
     path: web::Path<String>,
     query: web::Query<DownloadQuery>,
+    context: web::Data<InterfaceContext>,
     req: HttpRequest,
 ) -> HttpResponse {
     error::styled_error_wrapper(&req, &app, async {
         let object_path = path.into_inner();
         Ok(if query.mode == DownloadMode::Assets {
-            asset_download(&app, &object_path, &req)?
+            asset_download(&app, &object_path, &context, &req)?
         } else {
             let resolved_object = app
                 .resolve_object(object_path, query.key.as_deref())
@@ -238,14 +241,19 @@ async fn thumb_download<'a>(
     // TODO: Proper browser caching control
 }
 
-fn asset_download(app: &AppData, object_path: &str, req: &HttpRequest) -> Result<HttpResponse> {
+fn asset_download(
+    app: &AppData,
+    object_path: &str,
+    context: &InterfaceContext,
+    req: &HttpRequest,
+) -> Result<HttpResponse> {
     // icons.css is generated on the fly, so we handle it separately
     if object_path == "icons.css" {
         return Ok(HttpResponse::Ok()
             .insert_header(header::ContentType(mime::TEXT_CSS))
             .insert_header(CACHE_CONTROL_IMMUTABLE)
             .body(templates::icons_css(
-                app.get_download_base_url(),
+                context.get_objects_base_url(app),
                 app.get_static_content_hash(),
             )));
     }

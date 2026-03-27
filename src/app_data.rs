@@ -27,6 +27,34 @@ use tokio::{
     time::timeout,
 };
 
+/// Identifies which interface (download or admin) a request is being served from.
+/// Registered as scope-level `web::Data` so handlers can use the correct base URLs.
+#[derive(Copy, Clone, Debug)]
+pub enum InterfaceContext {
+    Download,
+    Admin,
+}
+
+impl InterfaceContext {
+    pub fn get_base_url<'a>(&self, app: &'a AppData) -> &'a str {
+        match self {
+            InterfaceContext::Download => app.get_download_base_url(),
+            InterfaceContext::Admin => app.get_admin_url(),
+        }
+    }
+
+    pub fn get_objects_base_url<'a>(&self, app: &'a AppData) -> &'a str {
+        match self {
+            InterfaceContext::Download => app.get_download_base_url(),
+            InterfaceContext::Admin => app.get_admin_objects_base_url(),
+        }
+    }
+
+    pub fn is_admin(&self) -> bool {
+        matches!(self, InterfaceContext::Admin)
+    }
+}
+
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)))]
 pub enum AppDataError {

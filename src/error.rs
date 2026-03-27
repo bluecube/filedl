@@ -1,4 +1,4 @@
-use actix_web::{HttpRequest, HttpResponse, http::StatusCode};
+use actix_web::{HttpRequest, HttpResponse, http::StatusCode, web};
 use horrorshow::Template as _;
 use rand::Rng as _;
 use snafu::prelude::*;
@@ -108,14 +108,12 @@ pub async fn styled_error_wrapper(
     let (status, hash) = log_error(req, &err);
     let user_message = err.user_message();
 
-    let is_admin = req.path().starts_with(app.get_admin_url());
-    let base_url = if is_admin {
-        app.get_admin_objects_base_url()
-    } else {
-        app.get_download_base_url()
-    };
+    let context = req
+        .app_data::<web::Data<crate::app_data::InterfaceContext>>()
+        .map(|c| ***c)
+        .unwrap_or(crate::app_data::InterfaceContext::Download);
 
-    match crate::templates::ErrorPage::new_wrapped(app, base_url, status, &hash, user_message, is_admin)
+    match crate::templates::ErrorPage::new_wrapped(app, context, status, &hash, user_message)
         .into_string()
     {
         Ok(html) => HttpResponse::build(status)

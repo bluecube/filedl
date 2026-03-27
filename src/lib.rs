@@ -10,7 +10,13 @@ pub mod thumbnails;
 #[doc(hidden)]
 pub fn configure_services(cfg: &mut actix_web::web::ServiceConfig) {
     cfg.service(pages::index_page)
-        .service(actix_web::web::scope("/download").configure(pages::configure_pages))
+        .service(
+            actix_web::web::scope("/download")
+                .app_data(actix_web::web::Data::new(
+                    app_data::InterfaceContext::Download,
+                ))
+                .configure(pages::configure_pages),
+        )
         .service(actix_web::web::scope("/admin").configure(admin_pages::configure_admin_pages));
 }
 

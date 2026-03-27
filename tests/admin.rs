@@ -43,6 +43,28 @@ async fn duplicate_upload_is_rejected() {
 }
 
 #[actix_web::test]
+async fn admin_icons_css_uses_admin_urls() {
+    let (_dir, app) = test_app!();
+
+    let req = test::TestRequest::get()
+        .uri("/admin/objects/icons.css?mode=assets")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = test::read_body(resp).await;
+    let css = std::str::from_utf8(&body).unwrap();
+    assert!(
+        css.contains("/admin/objects/"),
+        "icons.css should reference admin URLs"
+    );
+    assert!(
+        !css.contains("/download/"),
+        "icons.css should not reference download URLs"
+    );
+}
+
+#[actix_web::test]
 async fn thumbnail_cache_stats_returns_200() {
     let (_dir, app) = test_app!();
 

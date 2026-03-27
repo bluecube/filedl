@@ -155,10 +155,12 @@ async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
 
 /// Configure all admin routes
 pub fn configure_admin_pages(cfg: &mut web::ServiceConfig) {
-    cfg.service(admin_dashboard)
+    cfg.app_data(web::Data::new(crate::app_data::InterfaceContext::Admin))
+        .service(admin_dashboard)
         .service(browse_linked)
         .service(
             web::scope("/objects")
+                .app_data(web::Data::new(crate::app_data::InterfaceContext::Admin))
                 .configure(crate::pages::configure_pages)
                 .service(rest_create_object)
                 .service(rest_patch_object)
