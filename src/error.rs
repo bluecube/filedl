@@ -44,6 +44,12 @@ pub enum FiledlError {
         #[snafu(implicit)]
         location: snafu::Location,
     },
+
+    #[snafu(display("Route not found at {location}"))]
+    RouteNotFound {
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
 }
 
 impl FiledlError {
@@ -52,6 +58,7 @@ impl FiledlError {
     pub fn user_message(&self) -> Option<String> {
         match self {
             FiledlError::AppDataError { source, .. } => source.user_message(),
+            FiledlError::RouteNotFound { .. } => Some("The requested page was not found.".into()),
             _ => None,
         }
     }
@@ -59,7 +66,9 @@ impl FiledlError {
     pub fn status_code(&self) -> StatusCode {
         match self {
             FiledlError::AppDataError { source, .. } => source.status_code(),
-            FiledlError::BadDownloadMode { .. } => StatusCode::NOT_FOUND,
+            FiledlError::BadDownloadMode { .. } | FiledlError::RouteNotFound { .. } => {
+                StatusCode::NOT_FOUND
+            }
             FiledlError::IOError { source, .. } => match source.kind() {
                 std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,

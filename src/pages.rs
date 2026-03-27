@@ -2,7 +2,10 @@ use crate::{
     app_data::{
         AppData, DirListingItem, InterfaceContext, ItemType, ObjectNotFoundSnafu, ResolvedObject,
     },
-    error::{self, BadDownloadModeSnafu, IOSnafu, Result, TemplateSnafu, ZippityBuildSnafu},
+    error::{
+        self, BadDownloadModeSnafu, IOSnafu, Result, RouteNotFoundSnafu, TemplateSnafu,
+        ZippityBuildSnafu,
+    },
     templates,
     thumbnails::ThumbnailType,
 };
@@ -338,13 +341,7 @@ where
 
 /// Not found handler used for default route
 pub async fn default_service(app: web::Data<Arc<AppData>>, req: HttpRequest) -> HttpResponse {
-    error::styled_error_wrapper(&req, &app, async {
-        ObjectNotFoundSnafu {
-            object_id: String::new(),
-        }
-        .fail()?
-    })
-    .await
+    error::styled_error_wrapper(&req, &app, async { RouteNotFoundSnafu.fail()? }).await
 }
 
 pub fn configure_pages(cfg: &mut web::ServiceConfig) {
