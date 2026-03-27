@@ -22,6 +22,7 @@ macro_rules! test_app {
                 data_path: dir.path().to_owned(),
                 linked_objects_root: dir.path().to_owned(),
                 download_url: "/download".into(),
+                download_origin: Some("https://example.invalid".into()),
                 admin_url: "/admin".into(),
                 app_name: "Test".into(),
                 display_timezone: chrono_tz::UTC,

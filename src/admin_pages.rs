@@ -72,11 +72,15 @@ async fn rest_create_object(
         let download_url = match &unlisted_key {
             Some(key) => format!(
                 "{}/{}?key={}",
-                app.get_download_base_url(),
+                app.get_full_download_base_url(),
                 url_encode(&object_id),
                 key
             ),
-            None => format!("{}/{}", app.get_download_base_url(), url_encode(&object_id)),
+            None => format!(
+                "{}/{}",
+                app.get_full_download_base_url(),
+                url_encode(&object_id)
+            ),
         };
 
         if let Some(link_path_str) = &query.link {

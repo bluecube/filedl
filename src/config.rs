@@ -51,10 +51,15 @@ pub struct Config {
     /// Root path for all linked objects
     pub linked_objects_root: PathBuf,
 
-    /// URL where the download side of the app is located.
-    /// The default `download` means that links lead to `http://server/download/`.
+    /// URL path where the download side of the app is located, used for routing
+    /// and generating links within the download interface. Default: `/download`.
     #[serde(default = "default_download_url")]
     pub download_url: String,
+
+    /// Scheme and host of the download side's public server, used for generating
+    /// shareable links in the admin interface (e.g. `https://files.example.com`).
+    /// Combined with `download_url` to form the full link. If not set, links are relative.
+    pub download_origin: Option<String>,
 
     /// URL where the admin side of the app is located.
     /// The default `/admin` means the admin dashboard is at `http://server/admin/`.

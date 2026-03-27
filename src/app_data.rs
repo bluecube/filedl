@@ -2,7 +2,6 @@ use crate::{
     config::Config,
     error::StartupError,
     storage::Storage,
-    templates::util::url_encode,
     thumbnails::{CacheStats, CachedThumbnails, ThumbnailType, is_thumbnailable},
 };
 use actix_web::{http::StatusCode, web::Bytes};
@@ -450,6 +449,7 @@ pub struct AppData {
     thumbnails: CachedThumbnails,
     static_content_hash: String,
     download_base_url: String,
+    full_download_base_url: String,
     admin_objects_base_url: String,
     signal_tx: watch::Sender<AppDataSignal>,
     background_tasks: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
@@ -464,13 +464,17 @@ impl AppData {
         let objects = RwLock::new(Storage::new(path)?);
         let thumbnail_cache_size = config.thumbnail_cache_size;
         let static_content_hash = format!("{:X}", rng().next_u32());
-        let download_base_url = format!("{}", url_encode(&config.download_url))
-            .trim_end_matches('/')
-            .to_owned();
-        let admin_objects_base_url = format!(
-            "{}/objects",
-            format!("{}", url_encode(&config.admin_url)).trim_end_matches('/')
+        let download_base_url = config.download_url.trim_end_matches('/').to_owned();
+        let full_download_base_url = format!(
+            "{}{}",
+            config
+                .download_origin
+                .as_deref()
+                .unwrap_or_default()
+                .trim_end_matches('/'),
+            &download_base_url
         );
+        let admin_objects_base_url = format!("{}/objects", config.admin_url.trim_end_matches('/'));
 
         let (signal_tx, _) = watch::channel(AppDataSignal::Rescan);
 
@@ -480,6 +484,7 @@ impl AppData {
             thumbnails: CachedThumbnails::new(thumbnail_cache_size),
             static_content_hash,
             download_base_url,
+            full_download_base_url,
             admin_objects_base_url,
             signal_tx,
             background_tasks: std::sync::Mutex::new(Vec::new()),
@@ -514,6 +519,10 @@ impl AppData {
 
     pub fn get_download_base_url(&self) -> &str {
         &self.download_base_url
+    }
+
+    pub fn get_full_download_base_url(&self) -> &str {
+        &self.full_download_base_url
     }
 
     pub fn get_admin_objects_base_url(&self) -> &str {
@@ -982,6 +991,7 @@ mod tests {
                 data_path: dir.path().to_path_buf(),
                 linked_objects_root: dir.path().to_path_buf(),
                 download_url: "/download".into(),
+                download_origin: None,
                 admin_url: "/admin".into(),
                 app_name: "test".into(),
                 display_timezone: chrono_tz::UTC,
@@ -1126,6 +1136,7 @@ mod tests {
                 data_path: dir.path().to_path_buf(),
                 linked_objects_root: dir.path().to_path_buf(),
                 download_url: "/download".into(),
+                download_origin: None,
                 admin_url: "/admin".into(),
                 app_name: "test".into(),
                 display_timezone: chrono_tz::UTC,

@@ -40,7 +40,7 @@ impl<'a> AdminListing<'a> {
 
         let listing = AdminListing {
             app_name: app.get_app_name(),
-            download_base_url: app.get_download_base_url(),
+            download_base_url: app.get_full_download_base_url(),
             objects_base_url: app.get_admin_objects_base_url(),
             display_timezone: app.get_display_timezone(),
             static_content_hash: app.get_static_content_hash(),

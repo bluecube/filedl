@@ -87,7 +87,10 @@ async fn upload_response_contains_download_url() {
     assert!(resp.status().is_success());
 
     let body: serde_json::Value = test::read_body_json(resp).await;
-    assert_eq!(body["download_url"], "/download/myupload");
+    assert_eq!(
+        body["download_url"],
+        "https://example.invalid/download/myupload"
+    );
 }
 
 #[actix_web::test]
@@ -97,6 +100,28 @@ async fn admin_dashboard_returns_200() {
     let req = test::TestRequest::get().uri("/admin").to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn admin_dashboard_uses_full_download_url() {
+    let (_dir, app) = test_app!();
+
+    // Create an object so there's something to show in the listing
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/testfile")
+        .set_payload("content")
+        .to_request();
+    test::call_service(&app, req).await;
+
+    let req = test::TestRequest::get().uri("/admin").to_request();
+    let resp = test::call_service(&app, req).await;
+    let body = test::read_body(resp).await;
+    let html = std::str::from_utf8(&body).unwrap();
+
+    assert!(
+        html.contains("https://example.invalid/download/testfile"),
+        "admin dashboard should reference the full download URL"
+    );
 }
 
 #[actix_web::test]
@@ -111,7 +136,10 @@ async fn admin_create_linked_object() {
     assert!(resp.status().is_success());
 
     let body: serde_json::Value = test::read_body_json(resp).await;
-    assert_eq!(body["download_url"], "/download/mylink");
+    assert_eq!(
+        body["download_url"],
+        "https://example.invalid/download/mylink"
+    );
 
     let req = test::TestRequest::get()
         .uri("/download/mylink")
@@ -168,11 +196,15 @@ async fn admin_upload_unlisted_returns_key_in_url() {
     assert!(resp.status().is_success());
 
     let body: serde_json::Value = test::read_body_json(resp).await;
-    let download_url = body["download_url"].as_str().unwrap();
-    assert_eq!(download_url, "/download/secret?key=mysecretkey");
+    assert_eq!(
+        body["download_url"],
+        "https://example.invalid/download/secret?key=mysecretkey"
+    );
 
     // object is accessible with the key
-    let req = test::TestRequest::get().uri(download_url).to_request();
+    let req = test::TestRequest::get()
+        .uri("/download/secret?key=mysecretkey")
+        .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
@@ -273,8 +305,12 @@ async fn patch_changes_unlisted_key() {
         .set_payload("content")
         .to_request();
     let resp = test::call_service(&app, req).await;
-    let body: serde_json::Value = test::read_body_json(resp).await;
-    let old_url = body["download_url"].as_str().unwrap().to_owned();
+    assert!(
+        test::read_body_json::<serde_json::Value, _>(resp).await["download_url"]
+            .as_str()
+            .unwrap()
+            .ends_with("?key=somekey")
+    );
 
     let req = test::TestRequest::patch()
         .uri("/admin/objects/myfile")
@@ -289,7 +325,9 @@ async fn patch_changes_unlisted_key() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let req = test::TestRequest::get().uri(&old_url).to_request();
+    let req = test::TestRequest::get()
+        .uri("/download/myfile?key=somekey")
+        .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 404);
 }
@@ -362,7 +400,10 @@ async fn admin_create_with_expiry() {
     assert!(resp.status().is_success());
 
     let body: serde_json::Value = test::read_body_json(resp).await;
-    assert_eq!(body["download_url"], "/download/expiring");
+    assert_eq!(
+        body["download_url"],
+        "https://example.invalid/download/expiring"
+    );
 }
 
 #[actix_web::test]
