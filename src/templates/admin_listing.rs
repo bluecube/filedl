@@ -250,6 +250,11 @@ impl RenderOnce for AdminListing<'_> {
                     span(class = "result");
                 }
 
+                details(id = "cache-stats") {
+                    summary: "Thumbnail cache stats";
+                    table;
+                }
+
             }
 
             section(id = "edit-overlay", onclick = "editBackgroundClick(event)") {

@@ -1,3 +1,5 @@
+const adminBaseUrl = window.location.pathname.replace(/\/$/, '');
+
 // --- edit state ---
 
 let editId = null;
@@ -202,8 +204,6 @@ document.querySelectorAll('.form-section').forEach(section => {
 });
 
 // --- add form ---
-
-const adminBaseUrl = window.location.pathname.replace(/\/$/, '');
 
 const form = document.getElementById('add-form');
 const fileInput = form.querySelector('[name=file]');
@@ -419,3 +419,46 @@ form.addEventListener('submit', async (e) => {
         result.textContent = (mode === 'upload' ? 'Upload' : 'Link') + ' failed: ' + await formatErrorResponse(resp);
     }
 });
+
+let cacheStats = document.getElementById("cache-stats")
+let cacheStatsInterval = null;
+cacheStats.addEventListener("toggle", async () => await startStopCacheStatsTimer())
+startStopCacheStatsTimer();
+
+async function startStopCacheStatsTimer() {
+    if (cacheStats.open && !cacheStatsInterval) {
+        await updateCacheStats()
+        cacheStatsInterval = setInterval(updateCacheStats, 1000);
+    } else if (!cacheStats.open && cacheStatsInterval) {
+        clearInterval(cacheStatsInterval);
+        cacheStatsInterval = null;
+    }
+}
+
+async function updateCacheStats() {
+    let table = cacheStats.querySelector("table");
+
+    const resp = await fetch(adminBaseUrl + '/thumbnail_cache_stats');
+    if (!resp.ok) {
+        table.innerHTML = "<tr><td>" + await formatErrorResponse(resp) + "</td></tr>";
+        return;
+    }
+
+    let stats = await resp.json();
+    function addRows(table, data, depth = 0) {
+        for (const [key, value] of Object.entries(data)) {
+            const row = table.insertRow();
+            const keyCell = row.insertCell();
+            const valueCell = row.insertCell();
+            keyCell.textContent = key;
+            keyCell.style.paddingLeft = `${depth}em`;
+            if (value && typeof value === "object") {
+                addRows(table, value, depth + 1);
+            } else {
+                valueCell.textContent = value;
+            }
+        }
+    }
+    table.innerHTML = "";
+    addRows(table, stats);
+}
