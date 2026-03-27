@@ -1,6 +1,5 @@
 use std::{fs::read, path::Path, sync::Arc};
 
-use assert2::assert;
 use fast_image_resize::{ResizeOptions, Resizer};
 use hayro::{RenderSettings, hayro_interpret::InterpreterSettings, hayro_syntax::Pdf};
 use image::{Rgba, RgbaImage};
