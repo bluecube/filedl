@@ -85,7 +85,7 @@ impl RenderTimeStats {
         const ALPHA: f64 = 0.01;
         let render_time = render_time.as_secs_f64();
 
-        if let Some(_) = self.last_slowest {
+        if self.last_slowest.is_some() {
             self.smoothed_render_time =
                 self.smoothed_render_time * (1.0 - ALPHA) + render_time * ALPHA;
             let slowest_threshold = self.slowest_threshold * (1.0 - ALPHA) + render_time * ALPHA;
