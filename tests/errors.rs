@@ -131,7 +131,7 @@ async fn error_response_is_html_with_status_and_hash() {
     );
     // Error hash is 8 hex chars
     assert!(
-        body.contains("<code>"),
+        body.contains("<code id=\"error-reference\">"),
         "body should contain the error hash in a code element"
     );
 }
