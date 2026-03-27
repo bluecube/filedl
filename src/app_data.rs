@@ -9,7 +9,7 @@ use actix_web::{http::StatusCode, web::Bytes};
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use futures::{Stream, pin_mut};
-use rand::{Rng as _, RngExt as _, rng};
+use rand::{Rng as _, rng};
 use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 use snafu::{OptionExt as _, ResultExt as _, prelude::*};
@@ -407,10 +407,6 @@ impl AppData {
 
         Ok(entries)
     }
-}
-
-pub fn generate_unlisted_key() -> Arc<str> {
-    format!("{:032x}", rand::rng().random::<u128>()).into()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

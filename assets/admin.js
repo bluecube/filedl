@@ -165,7 +165,7 @@ async function editDelete() {
 
 function randomKey() {
     const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789-._~';
-    const buf = new Uint8Array(8);
+    const buf = new Uint8Array(16);
     crypto.getRandomValues(buf);
     const key = Array.from(buf.subarray(0, -1), b => alphabet[b % alphabet.length]);
 
