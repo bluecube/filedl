@@ -223,7 +223,7 @@ impl RenderOnce for AdminListing<'_> {
                     }
                 }
 
-                form(id = "add-form") {
+                form(id = "add-form", autocomplete = "off") {
                     h2: "Add object";
 
                     div {
@@ -253,7 +253,7 @@ impl RenderOnce for AdminListing<'_> {
             }
 
             section(id = "edit-overlay", onclick = "editBackgroundClick(event)") {
-                form {
+                form(autocomplete = "off") {
                     h2(id = "edit-title");
                     |tmpl| AdminListing::render_key_expiry_controls(tmpl, "edit-expiry");
                     div {
