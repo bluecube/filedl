@@ -107,8 +107,9 @@ pub enum AppDataError {
         location: snafu::Location,
     },
 
-    #[snafu(display("IO error at {location}"))]
+    #[snafu(display("IO error ({path:?}) at {location}"))]
     IOError {
+        path: PathBuf,
         source: std::io::Error,
         #[snafu(implicit)]
         location: snafu::Location,
@@ -219,7 +220,11 @@ impl<'a> ResolvedObject<'a> {
         thumbnails: &'a CachedThumbnails,
         expires: Option<DateTime<Utc>>,
     ) -> AppDataResult<Self> {
-        let metadata = fs::metadata(&storage_path).await.context(IOSnafu)?;
+        let metadata = fs::metadata(&storage_path)
+            .await
+            .with_context(|_| IOSnafu {
+                path: storage_path.clone(),
+            })?;
 
         Ok(ResolvedObject {
             object_path,
@@ -276,11 +281,19 @@ impl<'a> ResolvedObject<'a> {
     pub async fn list(&self) -> AppDataResult<Vec<DirListingItem>> {
         let mut result = Vec::new();
 
-        let mut dir = fs::read_dir(&self.storage_path).await.context(IOSnafu)?;
-        while let Some(entry) = dir.next_entry().await.context(IOSnafu)? {
+        let mut dir = fs::read_dir(&self.storage_path)
+            .await
+            .with_context(|_| IOSnafu {
+                path: self.storage_path.clone(),
+            })?;
+        while let Some(entry) = dir.next_entry().await.with_context(|_| IOSnafu {
+            path: self.storage_path.clone(),
+        })? {
             if let Some(item) = DirListingItem::with_dir_entry(entry)
                 .await
-                .context(IOSnafu)?
+                .with_context(|_| IOSnafu {
+                    path: self.storage_path.clone(),
+                })?
             {
                 result.push(item);
             }
@@ -412,14 +425,22 @@ impl AppData {
         }
 
         let full_path = RelativePathBuf::from(path).to_path(&self.config.linked_objects_root);
-        let mut dir = tokio::fs::read_dir(&full_path).await.context(IOSnafu)?;
+        let mut dir = tokio::fs::read_dir(&full_path)
+            .await
+            .with_context(|_| IOSnafu {
+                path: full_path.clone(),
+            })?;
         let mut entries = Vec::new();
 
-        while let Some(entry) = dir.next_entry().await.context(IOSnafu)? {
+        while let Some(entry) = dir.next_entry().await.with_context(|_| IOSnafu {
+            path: full_path.clone(),
+        })? {
             let Ok(name) = entry.file_name().into_string() else {
                 continue;
             };
-            let file_type = entry.file_type().await.context(IOSnafu)?;
+            let file_type = entry.file_type().await.with_context(|_| IOSnafu {
+                path: full_path.join(&name),
+            })?;
             entries.push(BrowseLinkedEntry {
                 name,
                 is_dir: file_type.is_dir(),
@@ -623,7 +644,9 @@ impl AppData {
 
         for (key, obj) in self.objects.read().await.iter() {
             let path = self.get_object_storage_path(key, obj);
-            let metadata = fs::metadata(&path).await.context(IOSnafu)?;
+            let metadata = fs::metadata(&path)
+                .await
+                .with_context(|_| IOSnafu { path: path.clone() })?;
             result.push(AdminObjectInfo {
                 item: DirListingItem::with_metadata(&path, Arc::clone(key), &metadata),
                 ownership: obj.ownership.clone(),
@@ -644,7 +667,9 @@ impl AppData {
 
         if matches!(obj.ownership, ObjectOwnership::Owned) {
             let path = self.get_owned_object_storage_path(object_id);
-            remove_file_or_directory(&path).await.context(IOSnafu)?;
+            remove_file_or_directory(&path)
+                .await
+                .with_context(|_| IOSnafu { path: path.clone() })?;
         }
         Ok(())
     }
@@ -678,7 +703,11 @@ impl AppData {
 
         // Verify the path actually exists at creation time
         let fs_path = link_path.to_path(&self.config.linked_objects_root);
-        tokio::fs::metadata(&fs_path).await.context(IOSnafu)?;
+        tokio::fs::metadata(&fs_path)
+            .await
+            .with_context(|_| IOSnafu {
+                path: fs_path.clone(),
+            })?;
 
         let mut guard = self.objects.write().await;
         if !guard.create(
@@ -711,7 +740,9 @@ impl AppData {
                 continue;
             }
             let path = self.get_object_storage_path(key, obj);
-            let metadata = fs::metadata(&path).await.context(IOSnafu)?;
+            let metadata = fs::metadata(&path)
+                .await
+                .with_context(|_| IOSnafu { path: path.clone() })?;
             let mut item = DirListingItem::with_metadata(&path, Arc::clone(key), &metadata);
             item.expires = obj.expires;
             result.push(item);
@@ -896,9 +927,13 @@ impl AppData {
         let upload_temp_path = self.get_upload_temp_path();
         tokio::fs::create_dir_all(&upload_temp_path)
             .await
-            .context(IOSnafu)?;
-        let (f, temp_path) = tempfile::NamedTempFile::new_in(upload_temp_path)
-            .context(IOSnafu)?
+            .with_context(|_| IOSnafu {
+                path: upload_temp_path.clone(),
+            })?;
+        let (f, temp_path) = tempfile::NamedTempFile::new_in(&upload_temp_path)
+            .with_context(|_| IOSnafu {
+                path: upload_temp_path,
+            })?
             .into_parts();
         let mut f = tokio::fs::File::from_std(f);
 
@@ -907,7 +942,9 @@ impl AppData {
         // 3. Copy the content to file, this might take a long time
         while let Some(block) = content.next().await {
             let block = block.context(PayloadSnafu)?;
-            f.write_all(&block).await.context(IOSnafu)?;
+            f.write_all(&block).await.with_context(|_| IOSnafu {
+                path: temp_path.to_path_buf(),
+            })?;
         }
 
         drop(f); // We're done with the file, only using the temp_path from now on
@@ -928,12 +965,10 @@ impl AppData {
             return ObjectExistsSnafu { object_id }.fail();
         }
 
-        tokio::fs::rename(
-            temp_path.keep().unwrap(),
-            self.get_owned_object_storage_path(&object_id),
-        )
-        .await
-        .context(IOSnafu)?; // TODO: What happens if this fails?
+        let dest = self.get_owned_object_storage_path(&object_id);
+        tokio::fs::rename(temp_path.keep().unwrap(), &dest)
+            .await
+            .with_context(|_| IOSnafu { path: dest })?; // TODO: What happens if this fails?
 
         Ok(())
     }
