@@ -34,9 +34,7 @@ impl<'a> AdminListing<'a> {
         mut items: Vec<AdminObjectInfo>,
     ) -> Page<'a, Title<'a>, AdminListing<'a>> {
         let mut collator = feruca::Collator::default();
-        items.sort_unstable_by(|a, b| {
-            collator.collate(a.item.name.as_bytes(), b.item.name.as_bytes())
-        });
+        items.sort_unstable_by(|a, b| collator.collate(a.name.as_bytes(), b.name.as_bytes()));
 
         let listing = AdminListing {
             app_name: app.get_app_name(),
@@ -110,39 +108,47 @@ impl<'a> AdminListing<'a> {
     }
 
     fn render_item(&self, tmpl: &mut TemplateBuffer<'_>, info: &AdminObjectInfo) {
-        let item = &info.item;
+        let item = info.item.as_ref();
         let objects_url = ItemUrl {
             base_url: self.objects_base_url,
             directory_path: "",
-            item_name: item.name.as_ref(),
+            item_name: info.name.as_ref(),
             unlisted_key: info.unlisted_key.as_deref(),
         };
         let download_url = ItemUrl {
             base_url: self.download_base_url,
             directory_path: "",
-            item_name: item.name.as_ref(),
+            item_name: info.name.as_ref(),
             unlisted_key: info.unlisted_key.as_deref(),
         };
         let objects_url_str = format!("{}", objects_url);
         let key_str = info.unlisted_key.as_deref().unwrap_or("");
         let expires = info.expires.map(|e| e.to_rfc3339()).unwrap_or_default();
-        let thumbnail_class = if item.is_thumbnailable {
+        let (item_class, is_thumbnailable, is_directory) = match item {
+            Ok(item) => (
+                item.item_type.as_str(),
+                item.is_thumbnailable,
+                item.item_type == ItemType::Directory,
+            ),
+            Err(_) => ("broken", false, false),
+        };
+        let thumbnail_class = if is_thumbnailable {
             "main-link"
         } else {
             "main-link no-thumbnail"
         };
         tmpl << html!(
-            li(class = format_args!("{} admin-object", item.item_type)) {
+            li(class = format_args!("{} admin-object", item_class)) {
                 a(
                     class = thumbnail_class,
                     href = format_args!("{}", download_url)
                 ) {
-                    @ if item.is_thumbnailable {
+                    @ if is_thumbnailable {
                         : ThumbnailImg(objects_url);
                     }
                     span(class = "underlined") {
-                        : item.name.as_ref();
-                        @ if item.item_type == ItemType::Directory {
+                        : info.name.as_ref();
+                        @ if is_directory {
                             : "/";
                         }
                     }
@@ -161,11 +167,18 @@ impl<'a> AdminListing<'a> {
                                 }
                             }
                         }
-                        @ if item.item_type != ItemType::Directory {
-                            span(class = "size"): format_size(item.file_size, BINARY);
-                        }
-                        @ if let Some(modified) = item.modified {
-                            : FormatedIsoTimestamp(modified.with_timezone(self.display_timezone));
+                        @ match item {
+                            Ok(item) => {
+                                @ if item.item_type != ItemType::Directory {
+                                    span(class = "size"): format_size(item.file_size, BINARY);
+                                }
+                                @ if let Some(modified) = item.modified {
+                                    : FormatedIsoTimestamp(modified.with_timezone(self.display_timezone));
+                                }
+                            }
+                            Err(e) => {
+                                span(class = "error"): e.to_string();
+                            }
                         }
                         @ if let Some(expires) = info.expires {
                             span(class = "expiry") {
@@ -182,7 +195,7 @@ impl<'a> AdminListing<'a> {
                         button(
                             type = "button",
                             onclick = "openEdit(this)",
-                            data_id = item.name.as_ref(),
+                            data_id = info.name.as_ref(),
                             data_objects_url = objects_url_str.as_str(),
                             data_key = key_str,
                             data_expires = expires.as_str()

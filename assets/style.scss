@@ -199,6 +199,11 @@ ul.dir-listing {
             overflow-wrap: break-word;
             max-width: 100%;
         }
+
+        span.error {
+            color: #c33;
+            font-weight: bold;
+        }
     }
 
     a.download {

@@ -319,11 +319,12 @@ impl ItemType {
             ItemType::File
         }
     }
-}
 
-impl std::fmt::Display for ItemType {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ItemType::Directory => "directory",
+            ItemType::File => "file",
+        }
     }
 }
 
@@ -361,7 +362,10 @@ fn get_source_hash(path: &Path, metadata: &Metadata) -> Option<u64> {
 
 #[derive(Debug)]
 pub struct AdminObjectInfo {
-    pub item: DirListingItem,
+    pub name: Arc<str>,
+    /// Filesystem details of the object, or the error encountered while reading them
+    /// (e.g. the target of a linked object no longer exists).
+    pub item: Result<DirListingItem, std::io::Error>,
     pub ownership: ObjectOwnership,
     pub unlisted_key: Option<Arc<str>>,
     pub expires: Option<DateTime<Utc>>,
@@ -639,23 +643,33 @@ impl AppData {
         Ok(result)
     }
 
-    pub async fn list_objects_admin(&self) -> AppDataResult<Vec<AdminObjectInfo>> {
+    /// Reads the filesystem details of an object's data for use in a listing.
+    async fn object_listing_item(
+        &self,
+        key: Arc<str>,
+        obj: &Object,
+    ) -> std::io::Result<DirListingItem> {
+        let path = self.get_object_storage_path(&key, obj);
+        let metadata = fs::metadata(&path).await?;
+        let mut item = DirListingItem::with_metadata(&path, key, &metadata);
+        item.expires = obj.expires;
+        Ok(item)
+    }
+
+    pub async fn list_objects_admin(&self) -> Vec<AdminObjectInfo> {
         let mut result = Vec::new();
 
         for (key, obj) in self.objects.read().await.iter() {
-            let path = self.get_object_storage_path(key, obj);
-            let metadata = fs::metadata(&path)
-                .await
-                .with_context(|_| IOSnafu { path: path.clone() })?;
             result.push(AdminObjectInfo {
-                item: DirListingItem::with_metadata(&path, Arc::clone(key), &metadata),
+                name: Arc::clone(key),
+                item: self.object_listing_item(Arc::clone(key), obj).await,
                 ownership: obj.ownership.clone(),
                 unlisted_key: obj.unlisted_key.clone(),
                 expires: obj.expires,
             });
         }
 
-        Ok(result)
+        result
     }
 
     pub async fn delete_object(&self, object_id: &str) -> AppDataResult<()> {
@@ -728,7 +742,7 @@ impl AppData {
             .map_err(|_| ObjectNotFoundSnafu { object_id: id }.build())
     }
 
-    pub async fn list_objects(&self) -> AppDataResult<Vec<DirListingItem>> {
+    pub async fn list_objects(&self) -> Vec<DirListingItem> {
         let mut result = Vec::new();
 
         for (key, obj) in self.objects.read().await.iter() {
@@ -739,16 +753,18 @@ impl AppData {
                 log::info!("Ignoring expired object {} in listing", key);
                 continue;
             }
-            let path = self.get_object_storage_path(key, obj);
-            let metadata = fs::metadata(&path)
-                .await
-                .with_context(|_| IOSnafu { path: path.clone() })?;
-            let mut item = DirListingItem::with_metadata(&path, Arc::clone(key), &metadata);
-            item.expires = obj.expires;
-            result.push(item);
+            match self.object_listing_item(Arc::clone(key), obj).await {
+                Ok(item) => result.push(item),
+                Err(e) => log::warn!(
+                    "Skipping object {} with unreadable data at {:?}: {}",
+                    key,
+                    self.get_object_storage_path(key, obj),
+                    e
+                ),
+            }
         }
 
-        Ok(result)
+        result
     }
 
     pub async fn get_object_mut(
@@ -985,8 +1001,32 @@ async fn remove_file_or_directory(path: &Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// Creates an AppData with a test config in a temp directory, without
+    /// background tasks so tests can call internal methods without racing
+    /// the expiry or dump loops.
+    fn test_app() -> (tempfile::TempDir, Arc<AppData>) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = Config {
+            bind_address: "localhost".into(),
+            bind_port: 0,
+            data_path: dir.path().to_path_buf(),
+            linked_objects_root: dir.path().to_path_buf(),
+            download_url: "/download".into(),
+            download_origin: None,
+            admin_url: "/admin".into(),
+            app_name: "test".into(),
+            display_timezone: chrono_tz::UTC,
+            thumbnail_cache_size: 1024,
+        };
+        let app = AppData::with_config(config, false).unwrap();
+        (dir, app)
+    }
+
     mod expiry {
         use super::super::*;
+        use super::test_app;
         use chrono::Duration;
 
         fn make_object(expires: Option<DateTime<Utc>>) -> Object {
@@ -1014,28 +1054,6 @@ mod tests {
             let obj = make_object(None);
             assert!(!obj.is_expired());
         }
-
-        /// Creates an AppData with a test config in a temp directory, without
-        /// background tasks so tests can call internal methods without racing
-        /// the expiry or dump loops.
-        fn test_app() -> (tempfile::TempDir, Arc<AppData>) {
-            let dir = tempfile::tempdir().unwrap();
-            let config = Config {
-                bind_address: "localhost".into(),
-                bind_port: 0,
-                data_path: dir.path().to_path_buf(),
-                linked_objects_root: dir.path().to_path_buf(),
-                download_url: "/download".into(),
-                download_origin: None,
-                admin_url: "/admin".into(),
-                app_name: "test".into(),
-                display_timezone: chrono_tz::UTC,
-                thumbnail_cache_size: 1024,
-            };
-            let app = AppData::with_config(config, false).unwrap();
-            (dir, app)
-        }
-
         #[tokio::test]
         async fn delete_expired_removes_expired_object() {
             let (_dir, app) = test_app();
@@ -1161,25 +1179,7 @@ mod tests {
     }
 
     mod browse_linked {
-        use super::super::*;
-
-        fn test_app() -> (tempfile::TempDir, Arc<AppData>) {
-            let dir = tempfile::tempdir().unwrap();
-            let config = Config {
-                bind_address: "localhost".into(),
-                bind_port: 0,
-                data_path: dir.path().to_path_buf(),
-                linked_objects_root: dir.path().to_path_buf(),
-                download_url: "/download".into(),
-                download_origin: None,
-                admin_url: "/admin".into(),
-                app_name: "test".into(),
-                display_timezone: chrono_tz::UTC,
-                thumbnail_cache_size: 1024,
-            };
-            let app = AppData::with_config(config, false).unwrap();
-            (dir, app)
-        }
+        use super::test_app;
 
         #[tokio::test]
         async fn lists_files_and_directories() {
@@ -1238,6 +1238,59 @@ mod tests {
             let (_dir, app) = test_app();
             let result = app.browse_linked_directory("no_such_dir").await;
             assert!(result.is_err());
+        }
+    }
+
+    mod listing {
+        use super::super::*;
+        use super::test_app;
+
+        /// Registers a linked object `ok_link` pointing at an existing file and
+        /// `broken_link` pointing at a file that doesn't exist.
+        async fn add_ok_and_broken_links(dir: &tempfile::TempDir, app: &AppData) {
+            std::fs::write(dir.path().join("existing.txt"), b"hello").unwrap();
+            let mut guard = app.objects.write().await;
+            for (id, target) in [("ok_link", "existing.txt"), ("broken_link", "missing.txt")] {
+                guard.create(
+                    id.into(),
+                    Object {
+                        ownership: ObjectOwnership::Linked(target.into()),
+                        expires: None,
+                        unlisted_key: None,
+                    },
+                );
+            }
+        }
+
+        #[tokio::test]
+        async fn public_listing_skips_missing_objects() {
+            let (dir, app) = test_app();
+            add_ok_and_broken_links(&dir, &app).await;
+
+            let items = app.list_objects().await;
+            let names: Vec<&str> = items.iter().map(|item| item.name.as_ref()).collect();
+            assert_eq!(names, ["ok_link"]);
+        }
+
+        #[tokio::test]
+        async fn admin_listing_reports_missing_objects() {
+            let (dir, app) = test_app();
+            add_ok_and_broken_links(&dir, &app).await;
+
+            let items = app.list_objects_admin().await;
+            assert_eq!(items.len(), 2);
+
+            let ok = items.iter().find(|i| i.name.as_ref() == "ok_link").unwrap();
+            assert_eq!(ok.item.as_ref().unwrap().file_size, 5);
+
+            let broken = items
+                .iter()
+                .find(|i| i.name.as_ref() == "broken_link")
+                .unwrap();
+            assert_eq!(
+                broken.item.as_ref().unwrap_err().kind(),
+                std::io::ErrorKind::NotFound
+            );
         }
     }
 }

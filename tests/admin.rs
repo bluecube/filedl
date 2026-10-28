@@ -103,6 +103,19 @@ async fn admin_dashboard_returns_200() {
 }
 
 #[actix_web::test]
+async fn admin_dashboard_shows_object_with_missing_target() {
+    let (_dir, app) = test_app!(r#"{"brokenlink":{"ownership":{"Linked":"missing.txt"}}}"#);
+
+    let req = test::TestRequest::get().uri("/admin").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body = test::read_body(resp).await;
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains("brokenlink"));
+    assert!(html.contains(r#"class="error""#));
+}
+
+#[actix_web::test]
 async fn admin_dashboard_uses_full_download_url() {
     let (_dir, app) = test_app!();
 

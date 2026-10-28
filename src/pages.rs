@@ -110,7 +110,7 @@ async fn download_root(
     req: HttpRequest,
 ) -> HttpResponse {
     error::styled_error_wrapper(&req, &app, async {
-        let items = app.list_objects().await?;
+        let items = app.list_objects().await;
         match query.mode {
             DownloadMode::Default => {
                 Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(

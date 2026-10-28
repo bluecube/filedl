@@ -43,7 +43,7 @@ async fn browse_linked(
 #[get("")]
 async fn admin_dashboard(app: web::Data<Arc<AppData>>, req: HttpRequest) -> HttpResponse {
     error::styled_error_wrapper(&req, &app, async {
-        let items = app.list_objects_admin().await?;
+        let items = app.list_objects_admin().await;
         Ok(HttpResponse::Ok().content_type(mime::TEXT_HTML_UTF_8).body(
             AdminListing::new_wrapped(&app, items)
                 .into_string()

@@ -72,7 +72,7 @@ impl<'a> DirListing<'a> {
     fn render_item(&self, tmpl: &mut TemplateBuffer<'_>, item: &DirListingItem) {
         let url = ItemUrl::new(self, item);
         tmpl << html!(
-            li(class = format_args!("{}", item.item_type)) {
+            li(class = item.item_type.as_str()) {
                 a(class = format_args!(
                     "main-link{}",
                     if item.is_thumbnailable {

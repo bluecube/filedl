@@ -87,6 +87,22 @@ async fn linked_object_is_accessible() {
 }
 
 #[actix_web::test]
+async fn listing_skips_object_with_missing_target() {
+    let (dir, app) = test_app!(
+        r#"{"publicfile":{"ownership":"Owned"},"brokenlink":{"ownership":{"Linked":"missing.txt"}}}"#
+    );
+    std::fs::write(dir.path().join("owned_data/publicfile"), "public").unwrap();
+
+    let req = test::TestRequest::get().uri("/download").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body = test::read_body(resp).await;
+    let body_str = std::str::from_utf8(&body).unwrap();
+    assert!(body_str.contains("publicfile"));
+    assert!(!body_str.contains("brokenlink"));
+}
+
+#[actix_web::test]
 async fn unlisted_objects_not_shown_in_listing() {
     let (dir, app) = test_app!(
         r#"{"publicfile":{"ownership":"Owned"},"hiddenfile":{"ownership":"Owned","unlisted_key":"secret"}}"#
