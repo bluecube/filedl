@@ -148,8 +148,7 @@ pub fn create_thumbnail(
     Ok((bytes.into(), elapsed))
 }
 
-/// Returns a hash describing the source image, if it is thumbnailable,
-/// otherwise returns None.
+/// Returns a whether a given path is thumbnailable.
 pub fn is_thumbnailable(path: &Path) -> bool {
     if is_path_pdf(path) {
         return true;
