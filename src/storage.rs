@@ -24,13 +24,15 @@ impl<T: Serialize + DeserializeOwned> Storage<T> {
         self.map.get(key)
     }
 
-    pub fn get_mut(&mut self, key: &str) -> Option<&mut T> {
-        if self.map.contains_key(key) {
-            self.make_dirty();
-            self.map.get_mut(key)
-        } else {
-            None
-        }
+    /// Modifies the object using the closure.
+    /// Returns true if the object existed, false otherwise.
+    pub fn update(&mut self, key: &str, f: impl FnOnce(&mut T)) -> bool {
+        let Some(value) = self.map.get_mut(key) else {
+            return false;
+        };
+        f(value);
+        self.make_dirty();
+        true
     }
 
     pub fn set(&mut self, key: Arc<str>, value: T) -> Option<T> {
@@ -57,17 +59,19 @@ impl<T: Serialize + DeserializeOwned> Storage<T> {
         self.map.remove(key)
     }
 
-    /// Retain only the elements for which predicate returns `true`.
+    /// Removes all elements for which the predicate returns `true` and returns them.
     /// Only marks storage as dirty if entries were actually removed.
-    pub fn retain<F>(&mut self, mut f: F)
+    ///
+    /// Unlike `HashMap::extract_if`, this is not lazy and the predicate can't modify the elements.
+    pub fn extract_if<F>(&mut self, mut f: F) -> Vec<(Arc<str>, T)>
     where
         F: FnMut(&Arc<str>, &T) -> bool,
     {
-        let len_before = self.map.len();
-        self.map.retain(|k, v| f(k, v));
-        if self.map.len() != len_before {
+        let removed: Vec<_> = self.map.extract_if(|k, v| f(k, v)).collect();
+        if !removed.is_empty() {
             self.make_dirty();
         }
+        removed
     }
 
     /// Immediately (and unconditionally) dump the content to the file
@@ -154,6 +158,20 @@ mod tests {
     }
 
     #[test]
+    fn update_existing_and_missing() {
+        let (_dir, mut s) = fresh();
+        assert!(s.create(Arc::from("foo"), "hello".into()));
+        s.dump().unwrap();
+
+        assert!(!s.update("bar", |v| v.push('!')));
+        assert!(!s.is_dirty());
+
+        assert!(s.update("foo", |v| v.push('!')));
+        assert!(s.get("foo") == Some(&"hello!".to_string()));
+        assert!(s.is_dirty());
+    }
+
+    #[test]
     fn remove_existing_and_missing() {
         let (_dir, mut s) = fresh();
         assert!(s.create(Arc::from("foo"), "hello".into()));
@@ -173,32 +191,33 @@ mod tests {
     }
 
     #[test]
-    fn retain_removes_entries() {
+    fn extract_if_removes_and_returns_entries() {
         let (_dir, mut s) = fresh();
         s.create(Arc::from("keep"), "yes".into());
         s.create(Arc::from("drop"), "no".into());
         s.dump().unwrap();
 
-        s.retain(|_, v| v == "yes");
+        let removed = s.extract_if(|_, v| v == "no");
+        assert!(removed == vec![(Arc::from("drop"), "no".to_string())]);
         assert!(s.get("keep") == Some(&"yes".to_string()));
         assert!(s.get("drop") == None);
         assert!(s.len() == 1);
     }
 
     #[test]
-    fn retain_dirty_only_when_removed() {
+    fn extract_if_dirty_only_when_removed() {
         let (_dir, mut s) = fresh();
         s.create(Arc::from("a"), "keep".into());
         s.dump().unwrap();
         assert!(!s.is_dirty());
 
-        // Retain everything — should not mark dirty
-        s.retain(|_, _| true);
+        // Remove nothing — should not mark dirty
+        assert!(s.extract_if(|_, _| false).is_empty());
         assert!(!s.is_dirty());
     }
 
     #[test]
-    fn retain_dirty_when_removed() {
+    fn extract_if_dirty_when_removed() {
         let (_dir, mut s) = fresh();
         s.create(Arc::from("a"), "keep".into());
         s.create(Arc::from("b"), "drop".into());
@@ -206,7 +225,7 @@ mod tests {
         assert!(!s.is_dirty());
 
         // Remove one entry — should mark dirty
-        s.retain(|k, _| k.as_ref() == "a");
+        s.extract_if(|k, _| k.as_ref() != "a");
         assert!(s.is_dirty());
     }
 

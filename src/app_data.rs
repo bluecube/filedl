@@ -22,7 +22,7 @@ use std::{
 use tokio::{
     fs,
     io::AsyncWriteExt,
-    sync::{RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard, watch},
+    sync::{RwLock, RwLockReadGuard, watch},
     time::timeout,
 };
 
@@ -767,14 +767,15 @@ impl AppData {
         result
     }
 
-    pub async fn get_object_mut(
+    /// Modifies an object using the provided closure.
+    pub async fn update_object(
         &self,
         object_id: &str,
-    ) -> AppDataResult<RwLockMappedWriteGuard<'_, Object>> {
-        RwLockWriteGuard::try_map(self.objects.write().await, |storage| {
-            storage.get_mut(object_id)
-        })
-        .map_err(|_| ObjectNotFoundSnafu { object_id }.build())
+        f: impl FnOnce(&mut Object),
+    ) -> AppDataResult<()> {
+        let updated = self.objects.write().await.update(object_id, f);
+        ensure!(updated, ObjectNotFoundSnafu { object_id });
+        Ok(())
     }
 
     pub fn signal_expiry_change(&self) {
@@ -799,43 +800,27 @@ impl AppData {
 
     /// Goes through all objects in the storage and removes any expired entries,
     /// including deleting the files for owned expired entries.
+    /// Returns the time of the next expiry.
     /// Errors during file and directory deletion are logged, but ignored.
     async fn delete_expired_and_get_next(&self) -> Option<DateTime<Utc>> {
         let mut objects = self.objects.write().await;
-        let mut next_expiry: Option<DateTime<Utc>> = None;
-        let mut owned_to_delete: Vec<PathBuf> = Vec::new();
         let now = Utc::now();
 
-        objects.retain(|id, object| {
-            if object.is_expired_at(now) {
-                log::info!("Deleting expired object {id}");
-
-                if matches!(object.ownership, ObjectOwnership::Owned) {
-                    owned_to_delete.push(self.get_owned_object_storage_path(id));
-                }
-
-                false
-            } else {
-                next_expiry = match (next_expiry, object.expires) {
-                    (Some(e1), Some(e2)) => Some(e1.min(e2)),
-                    (Some(e1), None) => Some(e1),
-                    (None, Some(e2)) => Some(e2),
-                    (None, None) => None,
-                };
-
-                true
-            }
-        });
+        let removed = objects.extract_if(|_, obj| obj.is_expired_at(now));
 
         // We don't drop the lock now, because it is used to protect the files as well as the metadata
 
-        for path in owned_to_delete {
-            if let Err(e) = remove_file_or_directory(&path).await {
-                log::error!("Ignoring error while removing {}: {}", path.display(), e);
+        for (id, obj) in removed {
+            log::info!("Deleting expired object {id}");
+            if matches!(obj.ownership, ObjectOwnership::Owned) {
+                let path = self.get_owned_object_storage_path(&id);
+                if let Err(e) = remove_file_or_directory(&path).await {
+                    log::error!("Ignoring error while removing {}: {}", path.display(), e);
+                }
             }
         }
 
-        next_expiry
+        objects.iter().filter_map(|(_, obj)| obj.expires).min()
     }
 
     async fn expiry_task(&self, mut signal_rx: watch::Receiver<AppDataSignal>) {

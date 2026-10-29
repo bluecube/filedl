@@ -125,10 +125,11 @@ async fn rest_patch_object(
     error::json_error_wrapper(&req, async {
         let object_id = path.into_inner();
         let body = body.into_inner();
-        let mut obj = app.get_object_mut(&object_id).await?;
-        obj.unlisted_key = body.unlisted_key;
-        obj.expires = body.expires;
-        drop(obj);
+        app.update_object(&object_id, |obj| {
+            obj.unlisted_key = body.unlisted_key;
+            obj.expires = body.expires;
+        })
+        .await?;
         app.signal_expiry_change();
         Ok(HttpResponse::Ok().finish())
     })
