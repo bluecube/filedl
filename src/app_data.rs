@@ -677,8 +677,18 @@ impl AppData {
         let obj = guard
             .remove(object_id)
             .context(ObjectNotFoundSnafu { object_id })?;
-        drop(guard);
 
+        // The metadata is persisted before the data is removed, so a crash in between leaves
+        // at most an orphaned file, never a dangling object.
+        // Removing the data can take a while, so we only keep a read lock for it. That is still
+        // enough to keep out other writers, and the object is already invisible to readers.
+        let _guard = guard.downgrade();
+        self.remove_object_data(object_id, &obj).await
+    }
+
+    /// Removes the data of an object that was already removed from the storage.
+    /// Linked objects have no data of their own, so nothing is removed for them.
+    async fn remove_object_data(&self, object_id: &str, obj: &Object) -> AppDataResult<()> {
         if matches!(obj.ownership, ObjectOwnership::Owned) {
             let path = self.get_owned_object_storage_path(object_id);
             remove_file_or_directory(&path)
@@ -808,15 +818,14 @@ impl AppData {
 
         let removed = objects.extract_if(|_, obj| obj.is_expired_at(now));
 
-        // We don't drop the lock now, because it is used to protect the files as well as the metadata
-
+        // We only downgrade the lock while deleting the data, because it is used to protect
+        // the files as well as the metadata. A read lock is enough to keep out other writers,
+        // and the removed objects are already invisible to readers.
+        let objects = objects.downgrade();
         for (id, obj) in removed {
-            log::info!("Deleting expired object {id}");
-            if matches!(obj.ownership, ObjectOwnership::Owned) {
-                let path = self.get_owned_object_storage_path(&id);
-                if let Err(e) = remove_file_or_directory(&path).await {
-                    log::error!("Ignoring error while removing {}: {}", path.display(), e);
-                }
+            log::info!("Deleted expired object {id}");
+            if let Err(e) = self.remove_object_data(&id, &obj).await {
+                log::error!("Ignoring error while removing data of expired object {id}: {e}");
             }
         }
 
