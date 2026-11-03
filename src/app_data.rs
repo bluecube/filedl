@@ -700,9 +700,17 @@ impl AppData {
     async fn remove_object_data(&self, object_id: &str, obj: &Object) -> AppDataResult<()> {
         if matches!(obj.ownership, ObjectOwnership::Owned) {
             let path = self.get_owned_object_storage_path(object_id);
-            remove_file_or_directory(&path)
-                .await
-                .with_context(|_| IOSnafu { path: path.clone() })?;
+            match remove_file_or_directory(&path).await {
+                Ok(()) => {}
+                // The data is already gone, which is what we wanted.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    log::warn!(
+                        "Data of object {object_id} was already missing at {}",
+                        path.display()
+                    );
+                }
+                Err(e) => return Err(e).context(IOSnafu { path }),
+            }
         }
         Ok(())
     }
@@ -1170,6 +1178,51 @@ mod tests {
 
             // metadata.json should not exist (never written since storage was empty and clean)
             assert!(!dir.path().join("metadata.json").exists());
+        }
+    }
+
+    mod delete {
+        use super::super::*;
+        use super::test_app;
+
+        fn owned_object() -> Object {
+            Object {
+                ownership: ObjectOwnership::Owned,
+                expires: None,
+                unlisted_key: None,
+            }
+        }
+
+        #[tokio::test]
+        async fn removes_owned_data() {
+            let (dir, app) = test_app().await;
+            let owned_data = dir.path().join("owned_data");
+            std::fs::create_dir_all(&owned_data).unwrap();
+            std::fs::write(owned_data.join("obj"), b"hello").unwrap();
+            app.objects
+                .write()
+                .await
+                .create("obj".into(), owned_object())
+                .unwrap();
+
+            app.delete_object("obj").await.unwrap();
+
+            assert!(app.objects.read().await.get("obj").is_none());
+            assert!(!owned_data.join("obj").exists());
+        }
+
+        #[tokio::test]
+        async fn succeeds_when_owned_data_is_missing() {
+            let (_dir, app) = test_app().await;
+            app.objects
+                .write()
+                .await
+                .create("obj".into(), owned_object())
+                .unwrap();
+
+            app.delete_object("obj").await.unwrap();
+
+            assert!(app.objects.read().await.get("obj").is_none());
         }
     }
 
