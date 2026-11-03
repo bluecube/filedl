@@ -545,7 +545,7 @@ impl AppData {
                 .as_deref()
                 .unwrap_or_default()
                 .trim_end_matches('/'),
-            &download_base_url
+            download_base_url
         );
         let admin_objects_base_url = format!("{}/objects", config.admin_url.trim_end_matches('/'));
 
