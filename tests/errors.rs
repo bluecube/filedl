@@ -22,7 +22,7 @@ async fn expired_object_returns_404() {
         r#"{{"expobj":{{"ownership":{{"Linked":"linked_file.txt"}},"expires":"{}"}}}}"#,
         expires
     );
-    let (dir, app) = test_app!(&metadata, no_background);
+    let (dir, app) = test_app!(&metadata, no_expiry_task);
     std::fs::write(dir.path().join("linked_file.txt"), "content").unwrap();
 
     let req = test::TestRequest::get()

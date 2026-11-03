@@ -1,7 +1,7 @@
 use crate::{
     config::Config,
     error::StartupError,
-    storage::Storage,
+    storage::{Storage, WriteError},
     thumbnails::{CacheStats, CachedThumbnails, ThumbnailType, is_thumbnailable},
 };
 use actix_web::{http::StatusCode, web::Bytes};
@@ -22,7 +22,8 @@ use std::{
 use tokio::{
     fs,
     io::AsyncWriteExt,
-    sync::{RwLock, RwLockReadGuard, watch},
+    sync::{Mutex, RwLock, RwLockReadGuard, watch},
+    task::JoinHandle,
     time::timeout,
 };
 
@@ -130,6 +131,14 @@ pub enum AppDataError {
         #[snafu(implicit)]
         location: snafu::Location,
     },
+
+    #[snafu(display("Metadata storage error at {location}"))]
+    #[snafu(context(false))]
+    StorageError {
+        source: WriteError,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
 }
 
 impl AppDataError {
@@ -145,6 +154,10 @@ impl AppDataError {
             Self::IOError { source, .. } if source.kind() == std::io::ErrorKind::NotFound => {
                 StatusCode::NOT_FOUND
             }
+            Self::StorageError {
+                source: WriteError::Shutdown { .. },
+                ..
+            } => StatusCode::SERVICE_UNAVAILABLE,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -172,7 +185,8 @@ impl AppDataError {
             Self::DirectoryTraversal { .. }
             | Self::IOError { .. }
             | Self::ThumbnailError { .. }
-            | Self::PayloadError { .. } => None,
+            | Self::PayloadError { .. }
+            | Self::StorageError { .. } => None,
         }
     }
 }
@@ -477,16 +491,20 @@ pub struct AppData {
     full_download_base_url: String,
     admin_objects_base_url: String,
     signal_tx: watch::Sender<AppDataSignal>,
-    background_tasks: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    /// Handle of the expiry task, `None` if it wasn't started or has finished.
+    /// Kept until the task finishes, so that a cancelled `shutdown()` can be resumed.
+    expiry_task: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl AppData {
-    pub fn with_config(
+    /// Loads the metadata and creates the app data.
+    /// The storage dump task always runs, `spawn_expiry_task` controls only the expiry task.
+    pub async fn with_config(
         config: Config,
-        spawn_background_tasks: bool,
+        spawn_expiry_task: bool,
     ) -> std::result::Result<Arc<Self>, StartupError> {
         let path = config.data_path.join("metadata.json");
-        let objects = RwLock::new(Storage::new(path)?);
+        let objects = RwLock::new(Storage::new(path).await?);
         let thumbnail_cache_size = config.thumbnail_cache_size;
         let static_content_hash = format!("{:X}", rng().next_u32());
         let download_base_url = config.download_url.trim_end_matches('/').to_owned();
@@ -512,7 +530,7 @@ impl AppData {
             full_download_base_url,
             admin_objects_base_url,
             signal_tx,
-            background_tasks: std::sync::Mutex::new(Vec::new()),
+            expiry_task: Mutex::new(None),
         };
 
         // Remove the upload temp area from possible previous failed uploads
@@ -521,22 +539,12 @@ impl AppData {
 
         let app = Arc::new(data);
 
-        if spawn_background_tasks {
-            let mut tasks = app.background_tasks.lock().unwrap();
-            {
-                let app = Arc::clone(&app);
-                let signal_rx = app.signal_tx.subscribe();
-                tasks.push(tokio::spawn(
-                    async move { app.expiry_task(signal_rx).await },
-                ));
-            }
-            {
-                let app = Arc::clone(&app);
-                let signal_rx = app.signal_tx.subscribe();
-                tasks.push(tokio::spawn(async move {
-                    app.storage_dump_task(signal_rx).await
-                }));
-            }
+        if spawn_expiry_task {
+            let task_app = Arc::clone(&app);
+            let signal_rx = app.signal_tx.subscribe();
+            *app.expiry_task.lock().await = Some(tokio::spawn(async move {
+                task_app.expiry_task(signal_rx).await
+            }));
         }
 
         Ok(app)
@@ -675,11 +683,12 @@ impl AppData {
     pub async fn delete_object(&self, object_id: &str) -> AppDataResult<()> {
         let mut guard = self.objects.write().await;
         let obj = guard
-            .remove(object_id)
+            .remove(object_id)?
             .context(ObjectNotFoundSnafu { object_id })?;
 
-        // The metadata is persisted before the data is removed, so a crash in between leaves
-        // at most an orphaned file, never a dangling object.
+        // The metadata is removed before the data, so the object never points at missing data
+        // while running. The metadata file is written later by the storage's dump task, so
+        // a crash shortly after can still leave the object around without its data.
         // Removing the data can take a while, so we only keep a read lock for it. That is still
         // enough to keep out other writers, and the object is already invisible to readers.
         let _guard = guard.downgrade();
@@ -741,7 +750,7 @@ impl AppData {
                 expires,
                 unlisted_key,
             },
-        ) {
+        )? {
             return ObjectExistsSnafu { object_id }.fail();
         }
         Ok(())
@@ -783,7 +792,7 @@ impl AppData {
         object_id: &str,
         f: impl FnOnce(&mut Object),
     ) -> AppDataResult<()> {
-        let updated = self.objects.write().await.update(object_id, f);
+        let updated = self.objects.write().await.update(object_id, f)?;
         ensure!(updated, ObjectNotFoundSnafu { object_id });
         Ok(())
     }
@@ -795,17 +804,14 @@ impl AppData {
     pub async fn shutdown(&self) -> std::io::Result<()> {
         let _ = self.signal_tx.send(AppDataSignal::Quit);
 
-        let tasks = std::mem::take(&mut *self.background_tasks.lock().unwrap());
-        for task in tasks {
-            let _ = task.await;
+        let mut expiry_task = self.expiry_task.lock().await;
+        if let Some(handle) = &mut *expiry_task {
+            let _ = handle.await;
+            *expiry_task = None;
         }
+        drop(expiry_task);
 
-        let mut objects = self.objects.write().await;
-        if objects.is_dirty() {
-            objects.dump()?;
-        }
-
-        Ok(())
+        self.objects.write().await.shutdown().await
     }
 
     /// Goes through all objects in the storage and removes any expired entries,
@@ -816,7 +822,12 @@ impl AppData {
         let mut objects = self.objects.write().await;
         let now = Utc::now();
 
-        let removed = objects.extract_if(|_, obj| obj.is_expired_at(now));
+        let removed = objects
+            .extract_if(|_, obj| obj.is_expired_at(now))
+            .unwrap_or_else(|e| {
+                log::error!("Failed to remove expired objects: {e}");
+                Vec::new()
+            });
 
         // We only downgrade the lock while deleting the data, because it is used to protect
         // the files as well as the metadata. A read lock is enough to keep out other writers,
@@ -864,57 +875,6 @@ impl AppData {
             }
         }
         log::info!("Finished expiry task");
-    }
-
-    async fn storage_dump_task(&self, mut signal_rx: watch::Receiver<AppDataSignal>) {
-        log::info!("Starting storage dump task");
-        loop {
-            if !self.objects.read().await.is_dirty() {
-                // Wait for an event first:
-                match signal_rx.changed().await {
-                    Ok(()) => {
-                        let command = *signal_rx.borrow_and_update();
-                        match command {
-                            AppDataSignal::Rescan => (),
-                            AppDataSignal::Quit => break,
-                        }
-                    }
-                    Err(_) => break,
-                }
-
-                if !self.objects.read().await.is_dirty() {
-                    // If we were woken up and the storage is not dirty, just continue to next iteration
-                    continue;
-                }
-            }
-
-            // Actually dumping the storage:
-            let dump_result = self.objects.write().await.dump();
-            if let Err(e) = dump_result {
-                log::error!("Ignoring error while periodically dumping storage: {}", e);
-            }
-
-            // Wait for the cooldown interval before dumping the storage next time
-            match timeout(
-                Duration::from_secs(60),
-                signal_rx.wait_for(|command| matches!(command, AppDataSignal::Quit)),
-            )
-            .await
-            {
-                Ok(Ok(_quit)) => {
-                    // Received a quit without timeout
-                    break;
-                }
-                Ok(Err(_)) => {
-                    // The watch channel reports an error
-                    break;
-                }
-                Err(_) => {
-                    // Timed out -- the cooldown has ended, let's continue normally
-                }
-            }
-        }
-        log::info!("Finished storage dump task");
     }
 
     pub async fn upload_simple_object(
@@ -971,7 +931,7 @@ impl AppData {
                 expires,
                 unlisted_key,
             },
-        ) {
+        )? {
             return ObjectExistsSnafu { object_id }.fail();
         }
 
@@ -998,9 +958,8 @@ mod tests {
     use super::*;
 
     /// Creates an AppData with a test config in a temp directory, without
-    /// background tasks so tests can call internal methods without racing
-    /// the expiry or dump loops.
-    fn test_app() -> (tempfile::TempDir, Arc<AppData>) {
+    /// the expiry task so tests can call internal methods without racing it.
+    async fn test_app() -> (tempfile::TempDir, Arc<AppData>) {
         let dir = tempfile::tempdir().unwrap();
         let config = Config {
             bind_address: "localhost".into(),
@@ -1014,7 +973,7 @@ mod tests {
             display_timezone: chrono_tz::UTC,
             thumbnail_cache_size: 1024,
         };
-        let app = AppData::with_config(config, false).unwrap();
+        let app = AppData::with_config(config, false).await.unwrap();
         (dir, app)
     }
 
@@ -1050,15 +1009,19 @@ mod tests {
         }
         #[tokio::test]
         async fn delete_expired_removes_expired_object() {
-            let (_dir, app) = test_app();
+            let (_dir, app) = test_app().await;
 
             let past = Utc::now() - Duration::hours(1);
             let future = Utc::now() + Duration::hours(1);
 
             {
                 let mut guard = app.objects.write().await;
-                guard.create("expired_obj".into(), make_object(Some(past)));
-                guard.create("future_obj".into(), make_object(Some(future)));
+                guard
+                    .create("expired_obj".into(), make_object(Some(past)))
+                    .unwrap();
+                guard
+                    .create("future_obj".into(), make_object(Some(future)))
+                    .unwrap();
             }
 
             let next = app.delete_expired_and_get_next().await;
@@ -1075,21 +1038,23 @@ mod tests {
 
         #[tokio::test]
         async fn resolve_expired_object_returns_error() {
-            let (dir, app) = test_app();
+            let (dir, app) = test_app().await;
             // Create a file so the linked path resolves
             std::fs::write(dir.path().join("testfile"), b"hello").unwrap();
 
             let past = Utc::now() - Duration::hours(1);
             {
                 let mut guard = app.objects.write().await;
-                guard.create(
-                    "expired_link".into(),
-                    Object {
-                        ownership: ObjectOwnership::Linked("testfile".into()),
-                        expires: Some(past),
-                        unlisted_key: None,
-                    },
-                );
+                guard
+                    .create(
+                        "expired_link".into(),
+                        Object {
+                            ownership: ObjectOwnership::Linked("testfile".into()),
+                            expires: Some(past),
+                            unlisted_key: None,
+                        },
+                    )
+                    .unwrap();
             }
 
             let result = app.resolve_object("expired_link".to_owned(), None).await;
@@ -1101,7 +1066,7 @@ mod tests {
 
         #[tokio::test]
         async fn delete_expired_cleans_up_owned_files() {
-            let (dir, app) = test_app();
+            let (dir, app) = test_app().await;
 
             let owned_data = dir.path().join("owned_data");
             std::fs::create_dir_all(&owned_data).unwrap();
@@ -1115,8 +1080,12 @@ mod tests {
 
             {
                 let mut guard = app.objects.write().await;
-                guard.create("expired_obj".into(), make_object(Some(past)));
-                guard.create("future_obj".into(), make_object(Some(future)));
+                guard
+                    .create("expired_obj".into(), make_object(Some(past)))
+                    .unwrap();
+                guard
+                    .create("future_obj".into(), make_object(Some(future)))
+                    .unwrap();
             }
 
             app.delete_expired_and_get_next().await;
@@ -1127,44 +1096,76 @@ mod tests {
 
         #[tokio::test]
         async fn delete_expired_does_not_dirty_when_nothing_expired() {
-            let (_dir, app) = test_app();
+            let (_dir, app) = test_app().await;
 
             let future = Utc::now() + Duration::hours(1);
             {
                 let mut guard = app.objects.write().await;
-                guard.create("future_obj".into(), make_object(Some(future)));
-                guard.dump().unwrap();
+                guard
+                    .create("future_obj".into(), make_object(Some(future)))
+                    .unwrap();
             }
 
-            assert!(!app.objects.read().await.is_dirty());
+            let snapshots = app.objects.read().await.subscribe_snapshots();
             app.delete_expired_and_get_next().await;
-            assert!(!app.objects.read().await.is_dirty());
+            assert!(!snapshots.has_changed().unwrap());
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn shutdown_dumps_dirty_storage() {
+            let (dir, app) = test_app().await;
+
+            // The first change is written right away, the second one would wait for
+            // the cooldown, so only the shutdown can get it to disk in time.
+            app.objects
+                .write()
+                .await
+                .create("first".into(), make_object(None))
+                .unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            app.objects
+                .write()
+                .await
+                .create("second".into(), make_object(None))
+                .unwrap();
+
+            let start = tokio::time::Instant::now();
+            app.shutdown().await.unwrap();
+            assert!(start.elapsed() < crate::storage::DUMP_COOLDOWN);
+
+            let contents: std::collections::HashMap<String, serde_json::Value> =
+                serde_json::from_slice(&std::fs::read(dir.path().join("metadata.json")).unwrap())
+                    .unwrap();
+            assert!(contents.contains_key("first"));
+            assert!(contents.contains_key("second"));
         }
 
         #[tokio::test]
-        async fn shutdown_dumps_dirty_storage() {
-            let (dir, app) = test_app();
-
-            {
-                let mut guard = app.objects.write().await;
-                guard.create("obj".into(), make_object(None));
-            }
-            assert!(app.objects.read().await.is_dirty());
-
+        async fn modification_after_shutdown_returns_503() {
+            let (dir, app) = test_app().await;
+            std::fs::write(dir.path().join("testfile"), b"hello").unwrap();
             app.shutdown().await.unwrap();
 
-            // Verify the data was persisted to disk
-            let contents = std::fs::read_to_string(dir.path().join("metadata.json")).unwrap();
-            assert!(contents.contains("obj"));
+            let err = app
+                .create_linked_object("obj".into(), "testfile".into(), None, None)
+                .await
+                .unwrap_err();
+            assert!(matches!(
+                err,
+                AppDataError::StorageError {
+                    source: WriteError::Shutdown { .. },
+                    ..
+                }
+            ));
+            assert!(err.status_code() == StatusCode::SERVICE_UNAVAILABLE);
+            assert!(app.objects.read().await.get("obj").is_none());
         }
 
         #[tokio::test]
         async fn shutdown_skips_dump_when_clean() {
-            let (dir, app) = test_app();
+            let (dir, app) = test_app().await;
 
             // Storage is clean (no mutations)
-            assert!(!app.objects.read().await.is_dirty());
-
             app.shutdown().await.unwrap();
 
             // metadata.json should not exist (never written since storage was empty and clean)
@@ -1177,7 +1178,7 @@ mod tests {
 
         #[tokio::test]
         async fn lists_files_and_directories() {
-            let (dir, app) = test_app();
+            let (dir, app) = test_app().await;
             std::fs::write(dir.path().join("file.txt"), "hello").unwrap();
             std::fs::create_dir(dir.path().join("subdir")).unwrap();
 
@@ -1194,7 +1195,7 @@ mod tests {
 
         #[tokio::test]
         async fn directories_sorted_first() {
-            let (dir, app) = test_app();
+            let (dir, app) = test_app().await;
             std::fs::write(dir.path().join("aaa_file"), "").unwrap();
             std::fs::create_dir(dir.path().join("zzz_dir")).unwrap();
 
@@ -1204,7 +1205,7 @@ mod tests {
 
         #[tokio::test]
         async fn rejects_directory_traversal() {
-            let (_dir, app) = test_app();
+            let (_dir, app) = test_app().await;
 
             let result = app.browse_linked_directory("..").await;
             assert!(result.is_err());
@@ -1218,7 +1219,7 @@ mod tests {
 
         #[tokio::test]
         async fn browses_subdirectory() {
-            let (dir, app) = test_app();
+            let (dir, app) = test_app().await;
             std::fs::create_dir(dir.path().join("sub")).unwrap();
             std::fs::write(dir.path().join("sub").join("nested.txt"), "").unwrap();
 
@@ -1229,7 +1230,7 @@ mod tests {
 
         #[tokio::test]
         async fn nonexistent_path_returns_error() {
-            let (_dir, app) = test_app();
+            let (_dir, app) = test_app().await;
             let result = app.browse_linked_directory("no_such_dir").await;
             assert!(result.is_err());
         }
@@ -1245,20 +1246,22 @@ mod tests {
             std::fs::write(dir.path().join("existing.txt"), b"hello").unwrap();
             let mut guard = app.objects.write().await;
             for (id, target) in [("ok_link", "existing.txt"), ("broken_link", "missing.txt")] {
-                guard.create(
-                    id.into(),
-                    Object {
-                        ownership: ObjectOwnership::Linked(target.into()),
-                        expires: None,
-                        unlisted_key: None,
-                    },
-                );
+                guard
+                    .create(
+                        id.into(),
+                        Object {
+                            ownership: ObjectOwnership::Linked(target.into()),
+                            expires: None,
+                            unlisted_key: None,
+                        },
+                    )
+                    .unwrap();
             }
         }
 
         #[tokio::test]
         async fn public_listing_skips_missing_objects() {
-            let (dir, app) = test_app();
+            let (dir, app) = test_app().await;
             add_ok_and_broken_links(&dir, &app).await;
 
             let items = app.list_objects().await;
@@ -1268,7 +1271,7 @@ mod tests {
 
         #[tokio::test]
         async fn admin_listing_reports_missing_objects() {
-            let (dir, app) = test_app();
+            let (dir, app) = test_app().await;
             add_ok_and_broken_links(&dir, &app).await;
 
             let items = app.list_objects_admin().await;

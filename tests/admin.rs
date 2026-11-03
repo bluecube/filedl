@@ -566,3 +566,29 @@ async fn upload_rejects_invalid_object_id(uri: &str) {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
 }
+
+#[actix_web::test]
+async fn upload_is_persisted_to_metadata_file() {
+    let (dir, app) = test_app!();
+
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/persisted?unlisted_key=somekey")
+        .set_payload("content")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status().is_success());
+
+    // The first change is written right away, but by a background task.
+    let metadata_path = dir.path().join("metadata.json");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let metadata = loop {
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&metadata_path).unwrap()).unwrap();
+        if metadata.get("persisted").is_some() || std::time::Instant::now() > deadline {
+            break metadata;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    };
+    assert_eq!(metadata["persisted"]["ownership"], "Owned");
+    assert_eq!(metadata["persisted"]["unlisted_key"], "somekey");
+}

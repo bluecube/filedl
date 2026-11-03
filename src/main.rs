@@ -11,7 +11,7 @@ async fn main() -> Result<(), StartupError> {
     let config = Config::get()?;
     let host = config.bind_address.clone();
     let port = config.bind_port;
-    let app_data = AppData::with_config(config, true)?;
+    let app_data = AppData::with_config(config, true).await?;
     let app_data_shutdown = Arc::clone(&app_data);
 
     log::info!("Will bind to {}:{}", host, port);

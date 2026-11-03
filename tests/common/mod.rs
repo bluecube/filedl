@@ -3,15 +3,15 @@ macro_rules! test_app {
         test_app!("{}")
     };
     ($metadata:expr) => {
-        test_app!($metadata, background)
+        test_app!($metadata, expiry_task)
     };
-    ($metadata:expr, no_background) => {
+    ($metadata:expr, no_expiry_task) => {
         test_app!(@inner $metadata, false)
     };
-    ($metadata:expr, background) => {
+    ($metadata:expr, expiry_task) => {
         test_app!(@inner $metadata, true)
     };
-    (@inner $metadata:expr, $background:expr) => {{
+    (@inner $metadata:expr, $expiry:expr) => {{
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("owned_data")).unwrap();
         std::fs::write(dir.path().join("metadata.json"), $metadata).unwrap();
@@ -28,8 +28,9 @@ macro_rules! test_app {
                 display_timezone: chrono_tz::UTC,
                 thumbnail_cache_size: 1024 * 1024,
             },
-            $background,
+            $expiry,
         )
+        .await
         .unwrap();
         let app = actix_web::test::init_service(filedl::build_app!(app_data)).await;
         (dir, app)

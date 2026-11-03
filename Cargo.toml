@@ -37,15 +37,17 @@ serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = "1.0.149"
 tempfile = "3.27.0"
 snafu = "0.9"
-tokio = { version = "1.50.0", features = ["sync", "fs", "macros"] }
+tokio = { version = "1.50.0", features = ["sync", "fs", "macros", "rt", "time"] }
 tokio-rayon = "2.1.0"
 zippity = { version = "0.5.0", features = ["actix-web", "chrono"] }
+atomic-write-file = { version = "0.3.1", features = ["unnamed-tmpfile"] }
 
 [dev-dependencies]
 assert2 = "0.4.0"
 proptest = "1.11.0"
 test-case = "3.3.1"
 test-strategy = "0.4.5"
+tokio = { version = "1.50.0", features = ["test-util"] }
 zip = "8.4.0"
 
 [build-dependencies]
