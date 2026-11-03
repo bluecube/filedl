@@ -24,22 +24,13 @@ function galleryInit() {
         let thumbnail = mainLink.querySelector("img");
         if (thumbnail) {
             thumbnail_url = thumbnail.src;
-
-            thumbnail.classList.add("thumbnail-loading")
-            thumbnail.addEventListener(
-                "load", (e) => { e.currentTarget.classList.remove("thumbnail-loading"); },
-                { passive: true }
-            );
         } else {
             thumbnail_url = null;
         }
 
-        if (!isImage(mainLink.href)) {
+        if (!entry.classList.contains("image")) {
             return;
         }
-
-        entry.classList.add("image");
-        entry.classList.remove("file");
 
         let download = entry.querySelector("a.download");
 
@@ -185,12 +176,6 @@ function imgOnprogress(event) {
         progressBar.removeAttribute('value');
         progressBar.innerText = "";
     }
-}
-
-function isImage(url) {
-    url = new URL(url);
-    x = /\.(jpg|jpeg|png|webp|avif|gif|svg)$/i.test(url.pathname);
-    return x;
 }
 
 galleryInit();

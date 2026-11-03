@@ -269,7 +269,7 @@ impl<'a> ResolvedObject<'a> {
     }
 
     pub fn item_type(&self) -> ItemType {
-        ItemType::new(&self.metadata)
+        ItemType::new(&self.storage_path, &self.metadata)
     }
 
     pub fn get_expires(&self) -> Option<DateTime<Utc>> {
@@ -321,14 +321,25 @@ impl<'a> ResolvedObject<'a> {
 #[serde(rename_all = "lowercase")]
 pub enum ItemType {
     Directory,
+    /// Image that can be displayed by the browser (and shown in the gallery)
+    Image,
     /// File of other/unknown type
     File,
 }
 
+/// Extensions of image formats that browsers can display.
+const BROWSER_IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "avif", "gif", "svg"];
+
 impl ItemType {
-    pub fn new(metadata: &Metadata) -> Self {
+    pub fn new(path: &Path, metadata: &Metadata) -> Self {
         if metadata.is_dir() {
             ItemType::Directory
+        } else if path.extension().is_some_and(|ext| {
+            BROWSER_IMAGE_EXTENSIONS
+                .iter()
+                .any(|img_ext| ext.eq_ignore_ascii_case(img_ext))
+        }) {
+            ItemType::Image
         } else {
             ItemType::File
         }
@@ -337,6 +348,7 @@ impl ItemType {
     pub fn as_str(&self) -> &'static str {
         match self {
             ItemType::Directory => "directory",
+            ItemType::Image => "image",
             ItemType::File => "file",
         }
     }
@@ -414,7 +426,7 @@ impl DirListingItem {
     fn with_metadata(path: &Path, name: Arc<str>, metadata: &Metadata) -> Self {
         DirListingItem {
             name,
-            item_type: ItemType::new(metadata),
+            item_type: ItemType::new(path, metadata),
             is_thumbnailable: is_thumbnailable(path),
             file_size: metadata.len(),
             modified: metadata.modified().ok().map(Into::into),
@@ -1341,6 +1353,33 @@ mod tests {
                 broken.item.as_ref().unwrap_err().kind(),
                 std::io::ErrorKind::NotFound
             );
+        }
+    }
+
+    mod item_type {
+        use super::super::*;
+
+        #[test]
+        fn detects_item_types() {
+            let dir = tempfile::tempdir().unwrap();
+            let sub = dir.path().join("photos.jpg");
+            std::fs::create_dir(&sub).unwrap();
+            for (name, expected) in [
+                ("a.jpg", ItemType::Image),
+                ("b.JPEG", ItemType::Image),
+                ("c.svg", ItemType::Image),
+                ("d.tiff", ItemType::File),
+                ("e.pdf", ItemType::File),
+                ("jpg", ItemType::File),
+                ("f.txt", ItemType::File),
+            ] {
+                let path = dir.path().join(name);
+                std::fs::write(&path, b"").unwrap();
+                let metadata = std::fs::metadata(&path).unwrap();
+                assert_eq!(ItemType::new(&path, &metadata), expected, "{name}");
+            }
+            let metadata = std::fs::metadata(&sub).unwrap();
+            assert_eq!(ItemType::new(&sub, &metadata), ItemType::Directory);
         }
     }
 }

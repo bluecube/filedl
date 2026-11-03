@@ -57,6 +57,7 @@ impl ItemUrl<'_> {
 
 /// Renders a thumbnail `<img>` with srcset at 64/128/256px.
 /// The `ItemUrl` is used as the item's access URL; `?key=` is included if the item is unlisted.
+/// Starts with the `thumbnail-loading` class (showing the item type icon) until the image loads.
 pub struct ThumbnailImg<'a>(pub ItemUrl<'a>);
 
 impl RenderOnce for ThumbnailImg<'_> {
@@ -73,6 +74,8 @@ impl RenderOnce for ThumbnailImg<'_> {
                 srcset = format_args!("{} 64w, {} 128w, {} 256w, {} 512w", u64, u128, u256, u512),
                 sizes = "4em",
                 loading = "lazy",
+                class = "thumbnail-loading",
+                onload = "this.classList.remove('thumbnail-loading')",
                 alt = ""
             );
         );

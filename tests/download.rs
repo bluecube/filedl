@@ -147,6 +147,7 @@ async fn directory_listing_json_mode() {
     std::fs::create_dir(&content_dir).unwrap();
     std::fs::write(content_dir.join("alpha.txt"), "aaa").unwrap();
     std::fs::write(content_dir.join("beta.txt"), "bbb").unwrap();
+    std::fs::write(content_dir.join("gamma.png"), "ccc").unwrap();
 
     let req = test::TestRequest::get()
         .uri("/download/mydir?mode=json")
@@ -156,11 +157,13 @@ async fn directory_listing_json_mode() {
 
     let mut items: Vec<serde_json::Value> = test::read_body_json(resp).await;
     items.sort_by_key(|v| v["name"].as_str().unwrap_or("").to_owned());
-    assert_eq!(items.len(), 2);
+    assert_eq!(items.len(), 3);
     assert_eq!(items[0]["name"], "alpha.txt");
     assert_eq!(items[0]["item_type"], "file");
     assert_eq!(items[1]["name"], "beta.txt");
     assert_eq!(items[1]["item_type"], "file");
+    assert_eq!(items[2]["name"], "gamma.png");
+    assert_eq!(items[2]["item_type"], "image");
 }
 
 #[actix_web::test]
