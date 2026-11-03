@@ -16,13 +16,16 @@ use std::{
     fs::Metadata,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime},
 };
 use tokio::{
     fs,
     io::AsyncWriteExt,
-    sync::{Mutex, RwLock, RwLockReadGuard, watch},
+    sync::{Mutex, Notify, RwLock, RwLockReadGuard},
     task::JoinHandle,
     time::timeout,
 };
@@ -327,6 +330,13 @@ pub enum ItemType {
     File,
 }
 
+/// Lower bound on the expiry task's wait, so that an expired object that can't be removed
+/// doesn't make the task spin. Expired objects are already hidden, so the delay is invisible.
+const MIN_EXPIRY_WAIT: Duration = Duration::from_secs(1);
+/// Upper bound on the expiry task's wait. The wait is computed from the wall clock but measured
+/// on a monotonic timer, so this bounds the extra delay after a suspend or a clock change.
+const MAX_EXPIRY_WAIT: Duration = Duration::from_secs(4 * 60 * 60);
+
 /// Extensions of image formats that browsers can display.
 const BROWSER_IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "avif", "gif", "svg"];
 
@@ -487,12 +497,6 @@ impl AppData {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum AppDataSignal {
-    Rescan,
-    Quit,
-}
-
 pub struct AppData {
     config: Config,
     objects: RwLock<Storage<Object>>,
@@ -502,7 +506,11 @@ pub struct AppData {
     download_base_url: String,
     full_download_base_url: String,
     admin_objects_base_url: String,
-    signal_tx: watch::Sender<AppDataSignal>,
+    /// Wakes up the expiry task, to rescan the objects or to check `expiry_quit`.
+    /// `notify_one` keeps a permit when the task isn't waiting, so no wakeup is lost.
+    expiry_notify: Notify,
+    /// Set once by `shutdown()`, never cleared, so a later rescan can't override it.
+    expiry_quit: AtomicBool,
     /// Handle of the expiry task, `None` if it wasn't started or has finished.
     /// Kept until the task finishes, so that a cancelled `shutdown()` can be resumed.
     expiry_task: Mutex<Option<JoinHandle<()>>>,
@@ -531,8 +539,6 @@ impl AppData {
         );
         let admin_objects_base_url = format!("{}/objects", config.admin_url.trim_end_matches('/'));
 
-        let (signal_tx, _) = watch::channel(AppDataSignal::Rescan);
-
         let data = AppData {
             config,
             objects,
@@ -541,7 +547,8 @@ impl AppData {
             download_base_url,
             full_download_base_url,
             admin_objects_base_url,
-            signal_tx,
+            expiry_notify: Notify::new(),
+            expiry_quit: AtomicBool::new(false),
             expiry_task: Mutex::new(None),
         };
 
@@ -553,10 +560,8 @@ impl AppData {
 
         if spawn_expiry_task {
             let task_app = Arc::clone(&app);
-            let signal_rx = app.signal_tx.subscribe();
-            *app.expiry_task.lock().await = Some(tokio::spawn(async move {
-                task_app.expiry_task(signal_rx).await
-            }));
+            *app.expiry_task.lock().await =
+                Some(tokio::spawn(async move { task_app.expiry_task().await }));
         }
 
         Ok(app)
@@ -818,11 +823,13 @@ impl AppData {
     }
 
     pub fn signal_expiry_change(&self) {
-        let _ = self.signal_tx.send(AppDataSignal::Rescan);
+        self.expiry_notify.notify_one();
     }
 
     pub async fn shutdown(&self) -> std::io::Result<()> {
-        let _ = self.signal_tx.send(AppDataSignal::Quit);
+        // The flag must be set before the wakeup, the task checks it after waking up.
+        self.expiry_quit.store(true, Ordering::Release);
+        self.expiry_notify.notify_one();
 
         let mut expiry_task = self.expiry_task.lock().await;
         if let Some(handle) = &mut *expiry_task {
@@ -863,36 +870,24 @@ impl AppData {
         objects.iter().filter_map(|(_, obj)| obj.expires).min()
     }
 
-    async fn expiry_task(&self, mut signal_rx: watch::Receiver<AppDataSignal>) {
+    async fn expiry_task(&self) {
         log::info!("Starting expiry task");
-        loop {
-            let timeout_duration = match self.delete_expired_and_get_next().await {
-                Some(next_expiry) => (next_expiry - Utc::now())
-                    .to_std()
-                    .unwrap_or(Duration::ZERO),
-                None => Duration::MAX, // It's easier to just wait a long time, the theoretical extra wakeup will not hurt anything.
-            };
+        while !self.expiry_quit.load(Ordering::Acquire) {
+            let next_expiry = self.delete_expired_and_get_next().await;
+            let now = Utc::now();
 
-            match timeout(timeout_duration, signal_rx.changed()).await {
-                Ok(Ok(())) => {
-                    // Received a command without timeout
-                    let command = *signal_rx.borrow_and_update();
-                    match command {
-                        AppDataSignal::Rescan => (),  // Just let the loop spin
-                        AppDataSignal::Quit => break, // Quit the task
-                    }
-                }
-                Ok(Err(_)) => {
-                    // The watch channel reports an error
-                    break;
-                }
-                Err(_) => {
-                    // Timed out.
-                    // This means that either an entry should be expiring by now, or that we're
-                    // rescanning in the "just in case" situation.
-                    // Nothing to do.
-                }
-            }
+            let timeout_duration = next_expiry
+                .map(|next_expiry| {
+                    (next_expiry - now)
+                        .to_std()
+                        .unwrap_or(MIN_EXPIRY_WAIT)
+                        .clamp(MIN_EXPIRY_WAIT, MAX_EXPIRY_WAIT)
+                })
+                .unwrap_or(MAX_EXPIRY_WAIT);
+
+            // Woken up either by a rescan or quit request, or by the timeout when an entry
+            // should be expiring by now. Either way we loop to check the quit flag and rescan.
+            let _ = timeout(timeout_duration, self.expiry_notify.notified()).await;
         }
         log::info!("Finished expiry task");
     }
@@ -980,6 +975,12 @@ mod tests {
     /// Creates an AppData with a test config in a temp directory, without
     /// the expiry task so tests can call internal methods without racing it.
     async fn test_app() -> (tempfile::TempDir, Arc<AppData>) {
+        test_app_with_expiry_task(false).await
+    }
+
+    async fn test_app_with_expiry_task(
+        spawn_expiry_task: bool,
+    ) -> (tempfile::TempDir, Arc<AppData>) {
         let dir = tempfile::tempdir().unwrap();
         let config = Config {
             bind_address: "localhost".into(),
@@ -993,13 +994,15 @@ mod tests {
             display_timezone: chrono_tz::UTC,
             thumbnail_cache_size: 1024,
         };
-        let app = AppData::with_config(config, false).await.unwrap();
+        let app = AppData::with_config(config, spawn_expiry_task)
+            .await
+            .unwrap();
         (dir, app)
     }
 
     mod expiry {
         use super::super::*;
-        use super::test_app;
+        use super::{test_app, test_app_with_expiry_task};
         use chrono::Duration;
 
         fn make_object(expires: Option<DateTime<Utc>>) -> Object {
@@ -1027,6 +1030,7 @@ mod tests {
             let obj = make_object(None);
             assert!(!obj.is_expired());
         }
+
         #[tokio::test]
         async fn delete_expired_removes_expired_object() {
             let (_dir, app) = test_app().await;
@@ -1179,6 +1183,54 @@ mod tests {
             ));
             assert!(err.status_code() == StatusCode::SERVICE_UNAVAILABLE);
             assert!(app.objects.read().await.get("obj").is_none());
+        }
+
+        /// Polls the shutdown once, so that it signals the expiry task and starts waiting for it.
+        async fn start_shutdown(
+            shutdown: &mut std::pin::Pin<&mut impl Future<Output = std::io::Result<()>>>,
+        ) {
+            tokio::select! {
+                biased;
+                _ = shutdown.as_mut() => panic!("Shutdown finished without waiting for the expiry task"),
+                _ = std::future::ready(()) => {}
+            }
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn rescan_after_shutdown_does_not_prevent_quit() {
+            let (_dir, app) = test_app_with_expiry_task(true).await;
+            // Let the expiry task do its initial scan and start waiting.
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+            let shutdown = app.shutdown();
+            tokio::pin!(shutdown);
+            start_shutdown(&mut shutdown).await;
+            app.signal_expiry_change();
+
+            tokio::time::timeout(std::time::Duration::from_secs(60), shutdown)
+                .await
+                .expect("Shutdown hangs")
+                .unwrap();
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn shutdown_during_scan_is_not_lost() {
+            let (_dir, app) = test_app_with_expiry_task(true).await;
+
+            // Blocks the expiry task inside its scan, so it isn't waiting for the signals.
+            let guard = app.objects.write().await;
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+            let shutdown = app.shutdown();
+            tokio::pin!(shutdown);
+            start_shutdown(&mut shutdown).await;
+            app.signal_expiry_change();
+            drop(guard);
+
+            tokio::time::timeout(std::time::Duration::from_secs(60), shutdown)
+                .await
+                .expect("Shutdown hangs")
+                .unwrap();
         }
 
         #[tokio::test]
