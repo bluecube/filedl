@@ -138,7 +138,7 @@ impl<'a> AdminListing<'a> {
             "main-link no-thumbnail"
         };
         tmpl << html!(
-            li(class = format_args!("{} admin-object", item_class)) {
+            li(class = item_class) {
                 a(
                     class = thumbnail_class,
                     href = format_args!("{}", download_url)

@@ -34,9 +34,6 @@ nav {
     margin-top: 1em;
     margin-bottom: 3em;
 
-    &, a, a:link {
-    }
-
     .app-name {
         font-size: 200%;
         margin: 0;
@@ -127,8 +124,6 @@ ul.dir-listing {
     width: 100%;
     margin: 0;
     padding: 0;
-    padding-top: -0.2em;
-    padding-bottom: -0.2em;
 
     li {
         @include item;
@@ -149,20 +144,21 @@ ul.dir-listing {
             flex: 1 1 auto;
             gap: 0.5em;
 
-            img {
-                object-fit: contain;
-            }
-
             img, &.no-thumbnail::before {
                 display: block;
                 width: 4rem;
                 height: 4rem;
-                vertical-align: middle;
-                background-size: cover;
+                object-fit: contain;
             }
 
             &.no-thumbnail::before {
                 content: "";
+            }
+
+            // --icon is set per item type in icons.css
+            &.no-thumbnail::before, img.thumbnail-loading {
+                background-image: var(--icon);
+                background-size: cover;
             }
 
             .underlined {
@@ -285,21 +281,32 @@ time .separator {
 
         width: 8em;
         height: .8em;
+        appearance: none;
         border: 0.01em solid $gallery-text;
         background: transparent;
 
-        &::-webkit-progress-bar, &::-moz-progress-bar {
-            background-color: #ccc;
+        // Each vendor pseudo-element needs its own rule, browsers drop
+        // the whole rule if they don't recognize one of the selectors.
+        &::-webkit-progress-bar {
+            background: transparent;
         }
 
-        &:indeterminate::-webkit-progress-bar, &:indeterminate::-moz-progress-bar {
-            width: 30%;
+        &::-webkit-progress-value {
+            background: $gallery-text;
         }
 
-        &:indeterminate::-webkit-progress-bar, &:indeterminate::-moz-progress-bar {
-            width: 30%;
-            animation: 1.5s infinite alternate progress-bounce;
-            animation-timing-function: ease-in-out;
+        &::-moz-progress-bar {
+            background: $gallery-text;
+        }
+
+        // Indeterminate progress is drawn on the element itself, the same in all browsers
+        &:indeterminate {
+            background: linear-gradient($gallery-text, $gallery-text) 0 0 / 30% 100% no-repeat;
+            animation: 1.5s ease-in-out infinite alternate progress-bounce;
+        }
+
+        &:indeterminate::-moz-progress-bar {
+            background: transparent;
         }
     }
 
@@ -356,13 +363,6 @@ time .separator {
         filter: brightness(0) drop-shadow(#000 0 0 0.1em) drop-shadow(#fff 0 0 0.5em);
     }
 
-    .thumbnails {
-        width: 100%;
-        height: 20vh;
-        border: 1px solid red;
-        flex: none;
-    }
-
 }
 
 body.covered {
@@ -371,11 +371,12 @@ body.covered {
 
 
 @keyframes progress-bounce {
+    // Not background-position, css-minify turns it into the background shorthand
     from {
-        margin-left: 0;
+        background-position-x: 0;
     }
     to {
-        margin-left: 70%;
+        background-position-x: 100%;
     }
 }
 

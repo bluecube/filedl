@@ -171,7 +171,7 @@ function imgOnprogress(event) {
     if (event.lengthComputable) {
         progressBar.max = event.total;
         progressBar.value = event.loaded;
-        progressBar.innerText = int(100 * event.loaded / event.total) + " %";
+        progressBar.innerText = Math.floor(100 * event.loaded / event.total) + " %";
     } else {
         progressBar.removeAttribute('value');
         progressBar.innerText = "";

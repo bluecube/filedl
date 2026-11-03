@@ -9,11 +9,10 @@ pub fn icons_css(base_url: &str, cache_hash: &str) -> String {
 
     format!(
         r#"
-
-.directory a.main-link.no-thumbnail::before, .directory a.main-link img.thumbnail-loading {{ background-image: url("{}"); }}
-.file a.main-link.no-thumbnail::before, .file a.main-link img.thumbnail-loading {{ background-image: url("{}"); }}
-.image a.main-link.no-thumbnail::before, .image a.main-link img.thumbnail-loading {{ background-image: url("{}"); }}
-.error a.main-link.no-thumbnail::before {{ background-image: url("{}"); }}
+li.directory {{ --icon: url("{}"); }}
+li.file {{ --icon: url("{}"); }}
+li.image {{ --icon: url("{}"); }}
+li.error {{ --icon: url("{}"); }}
 "#,
         asset_url("directory.svg"),
         asset_url("file.svg"),
