@@ -191,9 +191,7 @@ async fn file_download(
     force_download: bool,
     req: &HttpRequest,
 ) -> Result<HttpResponse> {
-    let mut nf = NamedFile::open_async(resolved_object.storage_path())
-        .await
-        .context(IOSnafu)?;
+    let mut nf = NamedFile::open(resolved_object.storage_path()).context(IOSnafu)?;
 
     if force_download {
         nf = change_named_file_content_disposition(nf, header::DispositionType::Attachment);

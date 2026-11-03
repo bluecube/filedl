@@ -155,17 +155,14 @@ fn minify_js(source: &Path, name: &Path) -> anyhow::Result<Vec<(PathBuf, Vec<u8>
         sourcemap_name.display(),
     )
     .into_bytes();
+    let sourcemap = minified_codegen.map.unwrap().to_json_string().into_bytes();
 
     ret.push((
         name.to_path_buf(),
         source_buf.into_bytes(),
         "APPLICATION_JAVASCRIPT_UTF_8",
     ));
-    ret.push((
-        sourcemap_name,
-        minified_codegen.map.unwrap().to_json_string().into_bytes(),
-        "APPLICATION_JSON",
-    ));
+    ret.push((sourcemap_name, sourcemap, "APPLICATION_JSON"));
     ret.push((
         add_before_ext(name, "min").unwrap(),
         minified_code,

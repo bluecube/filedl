@@ -1,7 +1,10 @@
 use std::{fs::read, path::Path, sync::Arc};
 
 use fast_image_resize::{ResizeOptions, Resizer};
-use hayro::{RenderSettings, hayro_interpret::InterpreterSettings, hayro_syntax::Pdf};
+use hayro::{
+    PixmapSettings, RenderCache, RenderSettings, hayro_interpret::InterpreterSettings,
+    hayro_syntax::Pdf,
+};
 use image::{Rgba, RgbaImage};
 
 use super::{IOSnafu, PdfLoadSnafu, ThumbnailResult as Result};
@@ -45,7 +48,7 @@ fn create_pdf_thumbnail_inner(file: &Path, resolution: (u32, u32)) -> Result<Rgb
     let scale_y = (resolution.1 as f32 + 0.5) / page_h;
     let scale = scale_x.min(scale_y);
 
-    let render_settings = RenderSettings {
+    let pixmap_settings = PixmapSettings {
         x_scale: scale,
         y_scale: scale,
         ..Default::default()
@@ -53,8 +56,10 @@ fn create_pdf_thumbnail_inner(file: &Path, resolution: (u32, u32)) -> Result<Rgb
 
     let pixmap = hayro::render(
         first_page,
+        &RenderCache::new(),
         &InterpreterSettings::default(),
-        &render_settings,
+        &RenderSettings::default(),
+        &pixmap_settings,
     );
 
     let rendered_w = pixmap.width() as u32;

@@ -263,7 +263,7 @@ async fn directory_zip_download() {
     let body = test::read_body(resp).await;
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(body.as_ref())).unwrap();
     let names: std::collections::HashSet<String> = (0..archive.len())
-        .map(|i| archive.by_index(i).unwrap().name().to_owned())
+        .map(|i| archive.by_index(i).unwrap().name().unwrap().into_owned())
         .collect();
     assert!(names.contains("public_name/file1.txt"));
     assert!(names.contains("public_name/file2.txt"));
