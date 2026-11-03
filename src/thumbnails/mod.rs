@@ -5,6 +5,7 @@ mod pdf_thumbnail;
 
 use std::{
     fmt::Display,
+    fs::Metadata,
     hash::Hash,
     io::Cursor,
     path::Path,
@@ -149,7 +150,10 @@ pub fn create_thumbnail(
 }
 
 /// Returns a whether a given path is thumbnailable.
-pub fn is_thumbnailable(path: &Path) -> bool {
+pub fn is_thumbnailable(path: &Path, metadata: &Metadata) -> bool {
+    if metadata.is_dir() {
+        return false;
+    }
     if is_path_pdf(path) {
         return true;
     }
@@ -194,4 +198,35 @@ fn blend_background(img: RgbaImage, background_color: Rgb<u8>) -> RgbImage {
     }
 
     ret
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_thumbnailable_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, expected) in [
+            ("a.jpg", true),
+            ("b.PNG", true),
+            ("c.pdf", true),
+            ("d.txt", false),
+            ("jpg", false),
+        ] {
+            let path = dir.path().join(name);
+            std::fs::write(&path, b"").unwrap();
+            let metadata = std::fs::metadata(&path).unwrap();
+            assert_eq!(is_thumbnailable(&path, &metadata), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn directory_with_image_extension_is_not_thumbnailable() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("photos.jpg");
+        std::fs::create_dir(&sub).unwrap();
+        let metadata = std::fs::metadata(&sub).unwrap();
+        assert!(!is_thumbnailable(&sub, &metadata));
+    }
 }

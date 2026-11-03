@@ -427,7 +427,7 @@ impl DirListingItem {
         DirListingItem {
             name,
             item_type: ItemType::new(path, metadata),
-            is_thumbnailable: is_thumbnailable(path),
+            is_thumbnailable: is_thumbnailable(path, metadata),
             file_size: metadata.len(),
             modified: metadata.modified().ok().map(Into::into),
             source_hash: get_source_hash(path, metadata),
