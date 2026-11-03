@@ -170,4 +170,11 @@ pub enum StartupError {
 
     #[snafu(transparent)]
     IOError { source: std::io::Error },
+
+    /// The server failed and the shutdown afterwards failed as well.
+    #[snafu(display("{source}; shutdown failed as well: {shutdown_error}"))]
+    DoubleError {
+        source: Box<StartupError>,
+        shutdown_error: std::io::Error,
+    },
 }

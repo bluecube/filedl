@@ -2,6 +2,17 @@ use actix_web::HttpServer;
 use filedl::{app_data::AppData, build_app, config::Config, error::StartupError};
 use std::sync::Arc;
 
+async fn run(app_data: Arc<AppData>, host: String, port: u16) -> Result<(), StartupError> {
+    HttpServer::new(move || {
+        let app_data = Arc::clone(&app_data);
+        build_app!(app_data)
+    })
+    .bind((host, port))?
+    .run()
+    .await?;
+    Ok(())
+}
+
 #[actix_web::main]
 async fn main() -> Result<(), StartupError> {
     env_logger::Builder::from_default_env()
@@ -16,15 +27,19 @@ async fn main() -> Result<(), StartupError> {
 
     log::info!("Will bind to {}:{}", host, port);
 
-    HttpServer::new(move || {
-        let app_data = Arc::clone(&app_data);
-        build_app!(app_data)
-    })
-    .bind((host, port))?
-    .run()
-    .await?;
+    // Shutdown has to run even if the server failed, to write pending metadata changes.
+    let run_result = run(app_data, host, port).await;
+    let shutdown_result = app_data_shutdown.shutdown().await;
 
-    app_data_shutdown.shutdown().await?;
-
-    Ok(())
+    match (run_result, shutdown_result) {
+        (Err(run_error), Err(shutdown_error)) => Err(StartupError::DoubleError {
+            source: Box::new(run_error),
+            shutdown_error,
+        }),
+        (run_result, shutdown_result) => {
+            run_result?;
+            shutdown_result?;
+            Ok(())
+        }
+    }
 }
