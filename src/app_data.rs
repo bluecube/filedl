@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use futures::{Stream, pin_mut};
 use rand::{Rng as _, rng};
-use relative_path::RelativePathBuf;
+use relative_path::{RelativePath, RelativePathBuf};
 use serde::{Deserialize, Serialize};
 use snafu::{OptionExt as _, ResultExt as _, prelude::*};
 use std::{
@@ -154,7 +154,12 @@ impl AppDataError {
             Self::DirectoryTraversal { .. }
             | Self::InvalidObjectId { .. }
             | Self::InvalidLinkPath { .. } => StatusCode::BAD_REQUEST,
-            Self::IOError { source, .. } if source.kind() == std::io::ErrorKind::NotFound => {
+            Self::IOError { source, .. }
+                if matches!(
+                    source.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) =>
+            {
                 StatusCode::NOT_FOUND
             }
             Self::StorageError {
@@ -673,11 +678,20 @@ impl AppData {
         let expires = obj.expires;
         let mut object_fs_path = self.get_object_storage_path(object_id, &obj);
         if let Some(subobject_path) = subobject_path {
-            object_fs_path.push(subobject_path);
+            // RelativePath ignores leading and repeated slashes, so a sub-path decoded from
+            // `%2F` can't escape to an absolute path, as it would with `PathBuf::push`.
+            object_fs_path = RelativePath::new(subobject_path).to_path(object_fs_path);
         }
         drop(obj);
 
+        // RelativePath also drops a trailing slash, so check it here, like the filesystem would.
+        let trailing_slash = path.ends_with('/');
         let result = ResolvedObject::new(path, object_fs_path, &self.thumbnails, expires).await?;
+        if trailing_slash && !result.metadata().is_dir() {
+            return Err(std::io::ErrorKind::NotADirectory.into()).context(IOSnafu {
+                path: result.into_storage_path(),
+            });
+        }
         Ok(result)
     }
 
@@ -745,10 +759,11 @@ impl AppData {
         Ok(())
     }
 
-    /// Validate that an object ID contains no path separators.
-    /// Object IDs must be flat identifiers — slashes would create nested directories.
+    /// Validate that an object ID is a single path component.
+    /// Object IDs must be flat identifiers — slashes would create nested directories,
+    /// and an empty ID, `.` or `..` would point at the owned data directory or its parent.
     fn validate_object_id(object_id: &str) -> AppDataResult<()> {
-        if object_id.contains('/') {
+        if matches!(object_id, "" | "." | "..") || object_id.contains('/') {
             return InvalidObjectIdSnafu {
                 object_id: object_id.to_string(),
             }
@@ -1419,10 +1434,109 @@ mod tests {
         }
     }
 
+    mod resolve {
+        use super::test_app;
+
+        #[tokio::test]
+        async fn absolute_subobject_path_stays_inside_object() {
+            let (dir, app) = test_app().await;
+            std::fs::create_dir(dir.path().join("sub")).unwrap();
+            let secret = dir.path().join("secret.txt");
+            std::fs::write(&secret, b"secret").unwrap();
+            app.create_linked_object("lnk".into(), "sub".into(), None, None)
+                .await
+                .unwrap();
+
+            // "lnk//tmp/.../secret.txt", as it arrives with the slashes encoded as %2F
+            let path = format!("lnk/{}", secret.display());
+            let Err(e) = app.resolve_object(path, None).await else {
+                panic!("resolved a path outside of the object");
+            };
+            assert_eq!(e.status_code(), actix_web::http::StatusCode::NOT_FOUND);
+        }
+
+        #[tokio::test]
+        async fn resolves_file_in_linked_directory() {
+            let (dir, app) = test_app().await;
+            std::fs::create_dir(dir.path().join("sub")).unwrap();
+            std::fs::write(dir.path().join("sub").join("file.txt"), b"hello").unwrap();
+            app.create_linked_object("lnk".into(), "sub".into(), None, None)
+                .await
+                .unwrap();
+
+            let resolved = app
+                .resolve_object("lnk/file.txt".into(), None)
+                .await
+                .unwrap();
+            assert_eq!(resolved.storage_path(), dir.path().join("sub/file.txt"));
+        }
+
+        #[test_case::test_case("lnk/file.txt/"; "trailing slash on file in directory")]
+        #[test_case::test_case("lnk/file.txt//"; "double trailing slash on file in directory")]
+        #[test_case::test_case("lnk/file.txt/x"; "path through file")]
+        #[test_case::test_case("file/"; "trailing slash on linked file")]
+        #[tokio::test]
+        async fn file_used_as_directory_is_not_found(path: &str) {
+            let (dir, app) = test_app().await;
+            std::fs::create_dir(dir.path().join("sub")).unwrap();
+            std::fs::write(dir.path().join("sub").join("file.txt"), b"hello").unwrap();
+            app.create_linked_object("lnk".into(), "sub".into(), None, None)
+                .await
+                .unwrap();
+            app.create_linked_object("file".into(), "sub/file.txt".into(), None, None)
+                .await
+                .unwrap();
+
+            let Err(e) = app.resolve_object(path.into(), None).await else {
+                panic!("resolved a file as a directory");
+            };
+            assert_eq!(e.status_code(), actix_web::http::StatusCode::NOT_FOUND);
+        }
+
+        #[test_case::test_case("lnk/"; "linked directory")]
+        #[test_case::test_case("lnk/inner/"; "subdirectory")]
+        #[tokio::test]
+        async fn trailing_slash_on_directory_resolves(path: &str) {
+            let (dir, app) = test_app().await;
+            std::fs::create_dir_all(dir.path().join("sub").join("inner")).unwrap();
+            app.create_linked_object("lnk".into(), "sub".into(), None, None)
+                .await
+                .unwrap();
+
+            let resolved = app.resolve_object(path.into(), None).await.unwrap();
+            assert!(resolved.metadata().is_dir());
+        }
+    }
+
     #[tokio::test]
     async fn startup_creates_owned_data_directory() {
         let (dir, _app) = test_app().await;
         assert!(dir.path().join("owned_data").is_dir());
+    }
+
+    mod validate_object_id {
+        use super::super::*;
+        use test_case::test_case;
+
+        #[test_case(""; "empty")]
+        #[test_case("."; "dot")]
+        #[test_case(".."; "dotdot")]
+        #[test_case("foo/bar"; "slash")]
+        #[test_case("/foo"; "leading slash")]
+        fn rejects(object_id: &str) {
+            assert!(matches!(
+                AppData::validate_object_id(object_id),
+                Err(AppDataError::InvalidObjectId { .. })
+            ));
+        }
+
+        #[test_case("foo"; "plain")]
+        #[test_case("..."; "three dots")]
+        #[test_case(".hidden"; "leading dot")]
+        #[test_case("foo..bar"; "embedded dotdot")]
+        fn accepts(object_id: &str) {
+            AppData::validate_object_id(object_id).unwrap();
+        }
     }
 
     mod item_type {

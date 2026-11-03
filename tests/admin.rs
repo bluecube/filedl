@@ -543,6 +543,8 @@ async fn browse_linked_nonexistent_returns_error() {
 #[test_case("/admin/objects/evil?link=foo/../../etc"; "embedded dotdot in link path")]
 #[test_case("/admin/objects/../escaped?link=file.txt"; "dotdot in linked object id")]
 #[test_case("/admin/objects/foo/bar?link=file.txt"; "slash in linked object id")]
+#[test_case("/admin/objects/%2E?link=file.txt"; "dot linked object id")]
+#[test_case("/admin/objects/%2E%2E?link=file.txt"; "dotdot linked object id")]
 #[actix_web::test]
 async fn linked_object_rejects_invalid_path(uri: &str) {
     let (dir, app) = test_app!();
@@ -555,6 +557,8 @@ async fn linked_object_rejects_invalid_path(uri: &str) {
 
 #[test_case("/admin/objects/../escaped"; "dotdot in upload object id")]
 #[test_case("/admin/objects/foo/bar"; "slash in upload object id")]
+#[test_case("/admin/objects/%2E"; "dot upload object id")]
+#[test_case("/admin/objects/%2E%2E"; "dotdot upload object id")]
 #[actix_web::test]
 async fn upload_rejects_invalid_object_id(uri: &str) {
     let (_dir, app) = test_app!();

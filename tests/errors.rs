@@ -55,6 +55,59 @@ async fn directory_traversal_in_download_returns_400() {
 }
 
 #[actix_web::test]
+async fn encoded_absolute_path_in_download_returns_404() {
+    let (dir, app) = test_app!();
+
+    let sub = dir.path().join("mydir");
+    std::fs::create_dir(&sub).unwrap();
+    let secret = dir.path().join("secret.txt");
+    std::fs::write(&secret, "secret").unwrap();
+
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/mydir?link=mydir")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status().is_success());
+
+    // The slashes are encoded, so the path survives routing as one absolute sub-path
+    let encoded = secret.to_str().unwrap().replace('/', "%2F");
+    let req = test::TestRequest::get()
+        .uri(&format!("/download/mydir/{encoded}"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+}
+
+#[actix_web::test]
+async fn trailing_slash_on_file_returns_404() {
+    let (dir, app) = test_app!();
+
+    let sub = dir.path().join("mydir");
+    std::fs::create_dir(&sub).unwrap();
+    std::fs::write(sub.join("file.txt"), "hello").unwrap();
+
+    let req = test::TestRequest::put()
+        .uri("/admin/objects/mydir?link=mydir")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status().is_success());
+
+    // A plain trailing slash is trimmed by the NormalizePath middleware
+    let req = test::TestRequest::get()
+        .uri("/download/mydir/file.txt/")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    // An encoded one survives it, and reaches resolve_object
+    let req = test::TestRequest::get()
+        .uri("/download/mydir/file.txt%2F")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+}
+
+#[actix_web::test]
 async fn thumbnail_mode_on_directory_returns_404() {
     let (dir, app) = test_app!();
 
