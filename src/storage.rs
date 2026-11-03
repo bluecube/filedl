@@ -34,7 +34,7 @@ pub enum WriteError {
 
     /// The storage is shut down. The modification was not applied.
     #[snafu(display("Storage is shut down at {location}"))]
-    Shutdown {
+    StorageAlreadyShutDown {
         #[snafu(implicit)]
         location: snafu::Location,
     },
@@ -195,13 +195,16 @@ impl<T: Serialize> Storage<T> {
     /// Applies `f` to the map and sends a snapshot to the dump task if `f` reports a change
     /// (the second element of its result). All modifications go through here.
     ///
-    /// Fails with `Shutdown` without calling `f` once shutdown has started,
+    /// Fails with `StorageAlreadyShutDown` without calling `f` once shutdown has started,
     /// so a refused modification leaves the map unchanged.
     fn modify<R>(
         &mut self,
         f: impl FnOnce(&mut HashMap<Arc<str>, T>) -> (R, bool),
     ) -> Result<R, WriteError> {
-        let snapshot_tx = self.snapshot_tx.as_ref().context(ShutdownSnafu)?;
+        let snapshot_tx = self
+            .snapshot_tx
+            .as_ref()
+            .context(StorageAlreadyShutDownSnafu)?;
 
         let (result, changed) = f(&mut self.map);
         if !changed {
@@ -552,11 +555,11 @@ mod tests {
         s.set(Arc::from("foo"), "bar".into()).unwrap();
         s.shutdown().await.unwrap();
 
-        assert!(let Err(WriteError::Shutdown { .. }) = s.set(Arc::from("new"), "x".into()));
-        assert!(let Err(WriteError::Shutdown { .. }) = s.create(Arc::from("new"), "x".into()));
-        assert!(let Err(WriteError::Shutdown { .. }) = s.update("foo", |v| v.push('!')));
-        assert!(let Err(WriteError::Shutdown { .. }) = s.remove("foo"));
-        assert!(let Err(WriteError::Shutdown { .. }) = s.extract_if(|_, _| true));
+        assert!(let Err(WriteError::StorageAlreadyShutDown { .. }) = s.set(Arc::from("new"), "x".into()));
+        assert!(let Err(WriteError::StorageAlreadyShutDown { .. }) = s.create(Arc::from("new"), "x".into()));
+        assert!(let Err(WriteError::StorageAlreadyShutDown { .. }) = s.update("foo", |v| v.push('!')));
+        assert!(let Err(WriteError::StorageAlreadyShutDown { .. }) = s.remove("foo"));
+        assert!(let Err(WriteError::StorageAlreadyShutDown { .. }) = s.extract_if(|_, _| true));
 
         assert!(s.len() == 1);
         assert!(s.get("foo") == Some(&"bar".to_string()));

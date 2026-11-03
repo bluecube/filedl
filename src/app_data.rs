@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    error::StartupError,
+    error::{MainError, MainIOSnafu},
     storage::{Storage, WriteError},
     thumbnails::{CacheStats, CachedThumbnails, ThumbnailType, is_thumbnailable},
 };
@@ -158,7 +158,7 @@ impl AppDataError {
                 StatusCode::NOT_FOUND
             }
             Self::StorageError {
-                source: WriteError::Shutdown { .. },
+                source: WriteError::StorageAlreadyShutDown { .. },
                 ..
             } => StatusCode::SERVICE_UNAVAILABLE,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
@@ -522,9 +522,13 @@ impl AppData {
     pub async fn with_config(
         config: Config,
         spawn_expiry_task: bool,
-    ) -> std::result::Result<Arc<Self>, StartupError> {
+    ) -> std::result::Result<Arc<Self>, MainError> {
         let path = config.data_path.join("metadata.json");
-        let objects = RwLock::new(Storage::new(path).await?);
+        let objects = RwLock::new(
+            Storage::new(path.clone())
+                .await
+                .context(MainIOSnafu { path })?,
+        );
         let thumbnail_cache_size = config.thumbnail_cache_size;
         let static_content_hash = format!("{:X}", rng().next_u32());
         let download_base_url = config.download_url.trim_end_matches('/').to_owned();
@@ -1177,7 +1181,7 @@ mod tests {
             assert!(matches!(
                 err,
                 AppDataError::StorageError {
-                    source: WriteError::Shutdown { .. },
+                    source: WriteError::StorageAlreadyShutDown { .. },
                     ..
                 }
             ));

@@ -160,21 +160,72 @@ pub async fn json_error_wrapper(
     }))
 }
 
+/// Errors that end the server binary: startup, running the server and shutdown.
 #[derive(Debug, Snafu)]
-pub enum StartupError {
+#[snafu(visibility(pub))]
+pub enum MainError {
     #[snafu(transparent)]
     ConfigError {
         #[snafu(source(from(figment::Error, Box::new)))]
         source: Box<figment::Error>,
     },
 
-    #[snafu(transparent)]
-    IOError { source: std::io::Error },
+    /// Filesystem error while setting up the app data.
+    /// The selector is renamed, `IOSnafu` is taken by `FiledlError::IOError`.
+    #[snafu(display("IO error ({path:?}): {source}"), context(name(MainIOSnafu)))]
+    IOError {
+        path: std::path::PathBuf,
+        source: std::io::Error,
+    },
+
+    /// Binding the HTTP server to its address failed.
+    #[snafu(display("Failed to bind to {host}:{port}: {source}"))]
+    BindError {
+        host: String,
+        port: u16,
+        source: std::io::Error,
+    },
+
+    /// Running the HTTP server failed.
+    #[snafu(display("Server error: {source}"))]
+    ServerError { source: std::io::Error },
+
+    /// Writing the metadata during shutdown failed.
+    #[snafu(display("Shutdown failed: {source}"))]
+    ShutdownError { source: std::io::Error },
 
     /// The server failed and the shutdown afterwards failed as well.
     #[snafu(display("{source}; shutdown failed as well: {shutdown_error}"))]
     DoubleError {
-        source: Box<StartupError>,
+        source: Box<MainError>,
         shutdown_error: std::io::Error,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn double_error_report_shows_both_errors() {
+        let err = MainError::DoubleError {
+            source: Box::new(MainError::BindError {
+                host: "localhost".into(),
+                port: 8080,
+                source: std::io::Error::from(std::io::ErrorKind::AddrInUse),
+            }),
+            shutdown_error: std::io::Error::other("disk full"),
+        };
+        let report = snafu::Report::from_error(err).to_string();
+
+        assert!(
+            report.contains("Failed to bind to localhost:8080"),
+            "{report}"
+        );
+        assert!(report.contains("address in use"), "{report}");
+        assert!(
+            report.contains("shutdown failed as well: disk full"),
+            "{report}"
+        );
+    }
 }
