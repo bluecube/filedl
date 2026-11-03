@@ -162,7 +162,7 @@ async fn download_object(
                         HttpResponse::Ok().json(items)
                     }
                     DownloadMode::Assets => unreachable!("Was handled before"),
-                    _ => BadDownloadModeSnafu.fail()?,
+                    DownloadMode::Thumbnail => BadDownloadModeSnafu.fail()?,
                 },
                 _ => match query.mode {
                     DownloadMode::Default => file_download(resolved_object, false, &req).await?,
@@ -332,8 +332,7 @@ where
     T: Responder<Body = BoxBody>,
 {
     r.respond_to(req).map_body(|_, body| match body {
-        EitherBody::Left { body } => body,
-        EitherBody::Right { body } => body,
+        EitherBody::Left { body } | EitherBody::Right { body } => body,
     })
 }
 

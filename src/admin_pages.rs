@@ -155,7 +155,7 @@ async fn rest_delete_object(
 /// Thumbnail cache statistics endpoint
 #[get("/thumbnail_cache_stats")]
 async fn thumbnail_cache_stats(app: web::Data<Arc<AppData>>) -> HttpResponse {
-    HttpResponse::Ok().json(app.get_thumbnail_cache_stats().await)
+    HttpResponse::Ok().json(app.get_thumbnail_cache_stats())
 }
 
 /// Configure all admin routes

@@ -20,7 +20,7 @@ pub fn create_image_thumbnail(file: &Path, resolution: (u32, u32)) -> Result<Rgb
         30, /* A good looking compromise to almost centering the crop */
     );
 
-    let resized = crop_and_resize(img, crop_coords, resolution);
+    let resized = crop_and_resize(&img, crop_coords, resolution);
     let resized_and_reoriented = fix_orientation(resized, orientation);
 
     Ok(resized_and_reoriented)
@@ -33,7 +33,7 @@ fn open_image(path: &Path) -> Result<DynamicImage> {
 }
 
 fn crop_and_resize(
-    img: RgbaImage,
+    img: &RgbaImage,
     crop_coords: (u32, u32, u32, u32),
     new_size: (u32, u32),
 ) -> RgbaImage {
@@ -42,7 +42,7 @@ fn crop_and_resize(
     let mut resizer = Resizer::new();
     resizer
         .resize(
-            &img,
+            img,
             &mut dst_image,
             &ResizeOptions::new().crop(
                 crop_coords.0 as f64,

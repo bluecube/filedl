@@ -128,7 +128,7 @@ pub fn create_thumbnail(
             )
             .context(ImageSnafu)?;
     } else {
-        let thumb = blend_background(thumb, BACKGROUND_COLOR);
+        let thumb = blend_background(&thumb, BACKGROUND_COLOR);
         thumb
             .write_to(
                 &mut Cursor::new(&mut bytes),
@@ -174,7 +174,7 @@ fn is_path_pdf(path: &Path) -> bool {
     extension.eq_ignore_ascii_case("pdf")
 }
 
-fn blend_background(img: RgbaImage, background_color: Rgb<u8>) -> RgbImage {
+fn blend_background(img: &RgbaImage, background_color: Rgb<u8>) -> RgbImage {
     let mut ret = ImageBuffer::new(img.width(), img.height());
 
     for (from, to) in img.pixels().zip(ret.pixels_mut()) {

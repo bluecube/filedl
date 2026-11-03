@@ -613,7 +613,7 @@ impl AppData {
         &self.static_content_hash
     }
 
-    pub async fn get_thumbnail_cache_stats(&self) -> CacheStats {
+    pub fn get_thumbnail_cache_stats(&self) -> CacheStats {
         self.thumbnails.cache_stats()
     }
 
@@ -861,7 +861,9 @@ impl AppData {
 
         let mut expiry_task = self.expiry_task.lock().await;
         if let Some(handle) = &mut *expiry_task {
-            let _ = handle.await;
+            if let Err(e) = handle.await {
+                log::error!("Expiry task failed: {e}");
+            }
             *expiry_task = None;
         }
         drop(expiry_task);
