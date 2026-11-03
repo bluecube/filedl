@@ -13,7 +13,6 @@ macro_rules! test_app {
     };
     (@inner $metadata:expr, $expiry:expr) => {{
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join("owned_data")).unwrap();
         std::fs::write(dir.path().join("metadata.json"), $metadata).unwrap();
         let app_data = filedl::app_data::AppData::with_config(
             filedl::config::Config {

@@ -506,6 +506,7 @@ pub struct AppData {
     download_base_url: String,
     full_download_base_url: String,
     admin_objects_base_url: String,
+    owned_object_storage_root: PathBuf,
     /// Wakes up the expiry task, to rescan the objects or to check `expiry_quit`.
     /// `notify_one` keeps a permit when the task isn't waiting, so no wakeup is lost.
     expiry_notify: Notify,
@@ -543,6 +544,13 @@ impl AppData {
         );
         let admin_objects_base_url = format!("{}/objects", config.admin_url.trim_end_matches('/'));
 
+        let owned_object_storage_root = config.data_path.join("owned_data");
+        tokio::fs::create_dir_all(&owned_object_storage_root)
+            .await
+            .with_context(|_| MainIOSnafu {
+                path: owned_object_storage_root.clone(),
+            })?;
+
         let data = AppData {
             config,
             objects,
@@ -551,6 +559,7 @@ impl AppData {
             download_base_url,
             full_download_base_url,
             admin_objects_base_url,
+            owned_object_storage_root,
             expiry_notify: Notify::new(),
             expiry_quit: AtomicBool::new(false),
             expiry_task: Mutex::new(None),
@@ -604,7 +613,7 @@ impl AppData {
     }
 
     fn get_owned_object_storage_path(&self, object_id: &str) -> PathBuf {
-        let mut path = self.config.data_path.join("owned_data");
+        let mut path = self.owned_object_storage_root.clone();
         path.push(object_id);
         path
     }
@@ -1097,7 +1106,6 @@ mod tests {
             let (dir, app) = test_app().await;
 
             let owned_data = dir.path().join("owned_data");
-            std::fs::create_dir_all(&owned_data).unwrap();
             let expired_file = owned_data.join("expired_obj");
             let future_file = owned_data.join("future_obj");
             std::fs::write(&expired_file, b"expired").unwrap();
@@ -1265,7 +1273,6 @@ mod tests {
         async fn removes_owned_data() {
             let (dir, app) = test_app().await;
             let owned_data = dir.path().join("owned_data");
-            std::fs::create_dir_all(&owned_data).unwrap();
             std::fs::write(owned_data.join("obj"), b"hello").unwrap();
             app.objects
                 .write()
@@ -1410,6 +1417,12 @@ mod tests {
                 std::io::ErrorKind::NotFound
             );
         }
+    }
+
+    #[tokio::test]
+    async fn startup_creates_owned_data_directory() {
+        let (dir, _app) = test_app().await;
+        assert!(dir.path().join("owned_data").is_dir());
     }
 
     mod item_type {
