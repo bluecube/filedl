@@ -130,7 +130,7 @@ impl<'a> AdminListing<'a> {
                 item.is_thumbnailable,
                 item.item_type == ItemType::Directory,
             ),
-            Err(_) => ("broken", false, false),
+            Err(_) => ("error", false, false),
         };
         let thumbnail_class = if is_thumbnailable {
             "main-link"
